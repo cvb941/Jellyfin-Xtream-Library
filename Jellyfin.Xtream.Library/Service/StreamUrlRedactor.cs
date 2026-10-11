@@ -1,0 +1,61 @@
+// Copyright (C) 2024  Roland Breitschaft
+
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+using System.Text.RegularExpressions;
+
+namespace Jellyfin.Xtream.Library.Service;
+
+/// <summary>
+/// Removes the provider username and password from an Xtream URL before it is logged.
+/// Xtream puts them in the path of stream URLs (/live/user/pass/1.ts) and in the query of API
+/// calls (player_api.php?username=…&amp;password=…). Jellyfin's log is what users paste into
+/// issues, so neither may reach it.
+/// </summary>
+public static partial class StreamUrlRedactor
+{
+    private const string Hidden = "***";
+
+    /// <summary>
+    /// Returns the URL with the credentials replaced by ***. Anything that is not an Xtream URL
+    /// comes back unchanged.
+    /// </summary>
+    /// <param name="url">The URL to log.</param>
+    /// <returns>The URL without credentials.</returns>
+    public static string Redact(string? url)
+    {
+        if (string.IsNullOrEmpty(url))
+        {
+            return string.Empty;
+        }
+
+        var result = PathCredentials().Replace(url, $"/$1/{Hidden}/{Hidden}/");
+        return QueryCredentials().Replace(result, $"$1{Hidden}");
+    }
+
+    /// <summary>
+    /// Returns the URL with the credentials replaced by ***.
+    /// </summary>
+    /// <param name="url">The URL to log.</param>
+    /// <returns>The URL without credentials.</returns>
+    public static string Redact(System.Uri? url) => Redact(url?.OriginalString);
+
+    // The two segments after the stream type are the username and the password. timeshift
+    // has more segments after them (duration, start), which are kept.
+    [GeneratedRegex("/(live|movie|series|timeshift)/[^/?#]+/[^/?#]+/", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex PathCredentials();
+
+    [GeneratedRegex("([?&](?:username|password)=)[^&#]*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex QueryCredentials();
+}
