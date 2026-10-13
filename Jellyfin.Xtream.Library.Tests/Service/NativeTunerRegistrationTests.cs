@@ -150,6 +150,46 @@ public class NativeTunerRegistrationTests
         _tasks.Verify(t => t.QueueScheduledTask(It.IsAny<IScheduledTask>(), It.IsAny<TaskOptions>()), Times.Never);
     }
 
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task SwitchingTheNativeTunerWithAHandAddedEntry_RefreshesTheGuide(bool before, bool after)
+    {
+        // A settings save does not refresh the guide, and with an entry already there nothing is
+        // added, so nothing else would.
+        _liveTv.TunerHosts = [new TunerHostInfo { Id = "manual", Type = XtreamTunerHost.TunerType, FriendlyName = "Xtream Library" }];
+        var refresh = SetUpRefreshGuideTask();
+
+        using var registration = NewRegistration();
+        await registration.SyncAsync(new PluginConfiguration { EnableLiveTv = true, EnableNativeTuner = before }, atStartup: true);
+        await registration.SyncAsync(new PluginConfiguration { EnableLiveTv = true, EnableNativeTuner = after }, atStartup: false);
+
+        _tasks.Verify(t => t.QueueScheduledTask(refresh, It.IsAny<TaskOptions>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SavingWithoutAChange_DoesNotRefreshTheGuide()
+    {
+        _liveTv.TunerHosts = [new TunerHostInfo { Id = "manual", Type = XtreamTunerHost.TunerType, FriendlyName = "Xtream Library" }];
+        SetUpRefreshGuideTask();
+
+        using var registration = NewRegistration();
+        await registration.SyncAsync(new PluginConfiguration { EnableLiveTv = true, EnableNativeTuner = true }, atStartup: true);
+        await registration.SyncAsync(new PluginConfiguration { EnableLiveTv = true, EnableNativeTuner = true }, atStartup: false);
+
+        _tasks.Verify(t => t.QueueScheduledTask(It.IsAny<IScheduledTask>(), It.IsAny<TaskOptions>()), Times.Never);
+    }
+
+    private IScheduledTask SetUpRefreshGuideTask()
+    {
+        var worker = new Mock<IScheduledTaskWorker>();
+        var task = new Mock<IScheduledTask>();
+        task.Setup(t => t.Key).Returns("RefreshGuide");
+        worker.Setup(w => w.ScheduledTask).Returns(task.Object);
+        _tasks.Setup(t => t.ScheduledTasks).Returns([worker.Object]);
+        return task.Object;
+    }
+
     private NativeTunerRegistration NewRegistration()
         => new(_tunerHosts.Object, _tasks.Object, _serverConfig.Object, NullLogger<NativeTunerRegistration>.Instance);
 

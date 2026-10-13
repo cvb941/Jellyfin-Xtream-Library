@@ -58,6 +58,7 @@ public sealed class NativeTunerRegistration : IHostedService, IDisposable
     private readonly ILogger<NativeTunerRegistration> _logger;
     private readonly SemaphoreSlim _sync = new(1, 1);
     private EventHandler<BasePluginConfiguration>? _subscribedHandler;
+    private bool? _lastWanted;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="NativeTunerRegistration"/> class.
@@ -110,18 +111,32 @@ public sealed class NativeTunerRegistration : IHostedService, IDisposable
     /// <summary>
     /// Adds or removes the plugin's own tuner entry to match the plugin settings.
     /// </summary>
-    /// <param name="config">The plugin configuration.</param>
+    /// <param name="config">The plugin configuration, or null to read the current one. Read
+    /// inside the lock, so of two overlapping saves the later settings win.</param>
     /// <param name="atStartup">True while the server starts. Jellyfin has not loaded its
     /// scheduled tasks yet then, and saving a tuner with a guide refresh throws after the entry is
     /// already saved, so the refresh is left to the caller.</param>
     /// <returns>True when an entry was added.</returns>
-    internal async Task<bool> SyncAsync(PluginConfiguration config, bool atStartup)
+    internal async Task<bool> SyncAsync(PluginConfiguration? config, bool atStartup)
     {
         await _sync.WaitAsync().ConfigureAwait(false);
         try
         {
+            config ??= Plugin.Instance?.Configuration;
+            if (config is null)
+            {
+                return false;
+            }
+
             var tuners = _serverConfig.GetConfiguration<LiveTvOptions>(LiveTvConfigKey).TunerHosts ?? Array.Empty<TunerHostInfo>();
             bool wanted = config.EnableLiveTv && config.EnableNativeTuner;
+
+            // Switching the native tuner on or off changes which channels it reports, but a
+            // settings save does not refresh the guide by itself. Adding an entry does that
+            // through SaveTunerHost; otherwise ask for it here. Not at startup: the tasks are not
+            // loaded yet, and nothing has changed since the last run.
+            bool switched = !atStartup && _lastWanted.HasValue && _lastWanted.Value != wanted;
+            _lastWanted = wanted;
 
             if (wanted)
             {
@@ -139,6 +154,11 @@ public sealed class NativeTunerRegistration : IHostedService, IDisposable
                     return true;
                 }
 
+                if (switched)
+                {
+                    await QueueGuideRefreshWhenReadyAsync(TimeSpan.Zero, TimeSpan.Zero).ConfigureAwait(false);
+                }
+
                 return false;
             }
 
@@ -146,6 +166,11 @@ public sealed class NativeTunerRegistration : IHostedService, IDisposable
             {
                 _tunerHostManager.DeleteTunerHost(entry.Id);
                 _logger.LogInformation("Removed the Xtream Library native tuner from Live TV Tuner Devices, since Native Tuner is off");
+            }
+
+            if (switched)
+            {
+                await QueueGuideRefreshWhenReadyAsync(TimeSpan.Zero, TimeSpan.Zero).ConfigureAwait(false);
             }
 
             return false;
@@ -182,7 +207,7 @@ public sealed class NativeTunerRegistration : IHostedService, IDisposable
                 if (refresh is not null)
                 {
                     _taskManager.QueueScheduledTask(refresh.ScheduledTask, new TaskOptions());
-                    _logger.LogInformation("Queued a guide refresh for the native tuner added at startup");
+                    _logger.LogInformation("Queued a guide refresh for the native tuner");
                     return true;
                 }
 
@@ -206,8 +231,7 @@ public sealed class NativeTunerRegistration : IHostedService, IDisposable
     {
         try
         {
-            var config = Plugin.Instance?.Configuration;
-            return config is not null && await SyncAsync(config, atStartup).ConfigureAwait(false);
+            return await SyncAsync(null, atStartup).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
