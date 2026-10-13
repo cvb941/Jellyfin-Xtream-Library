@@ -41,6 +41,9 @@ public class StreamUrlRedactorTests
     [InlineData("http://host/live/alice/open?sesame/123.ts", "http://host/live/***/***/123.ts")]
     [InlineData("http://host/live/alice/open#sesame/123.ts", "http://host/live/***/***/123.ts")]
     [InlineData("http://host/live/al?ice/opensesame/123.ts", "http://host/live/***/***/123.ts")]
+    [InlineData("http://host/live//opensesame/123.ts", "http://host/live/***/***/123.ts")]
+    [InlineData("{\"user_info\":{\"username\":\"alice\",\"password\":\"opensesame\",\"status\":\"Active\"}}", "{\"user_info\":{\"username\":\"***\",\"password\":\"***\",\"status\":\"Active\"}}")]
+    [InlineData("{\"user_info\":{\"password\" : \"opens", "{\"user_info\":{\"password\" : \"***\"")]
     [InlineData("http://host/player_api.php?username=alice&password=opensesame&action=get_vod_streams", "http://host/player_api.php?username=***&password=***&action=get_vod_streams")]
     [InlineData("http://host/player_api.php?action=get_series_info&password=opensesame&username=alice", "http://host/player_api.php?action=get_series_info&password=***&username=***")]
     public void Redact_HidesUsernameAndPassword(string url, string expected)

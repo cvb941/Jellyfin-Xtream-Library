@@ -29,7 +29,8 @@ public static partial class StreamUrlRedactor
 
     /// <summary>
     /// Returns the URL with the credentials replaced by ***. A URL without credentials in either
-    /// place comes back unchanged.
+    /// place comes back unchanged. Also covers "username" and "password" fields in a JSON
+    /// response, since player_api.php returns both in user_info.
     /// </summary>
     /// <param name="url">The URL to log.</param>
     /// <returns>The URL without credentials.</returns>
@@ -41,7 +42,8 @@ public static partial class StreamUrlRedactor
         }
 
         var result = PathCredentials().Replace(url, $"/$1/{Hidden}/{Hidden}/");
-        return QueryCredentials().Replace(result, $"$1{Hidden}");
+        result = QueryCredentials().Replace(result, $"$1{Hidden}");
+        return JsonCredentials().Replace(result, $"$1\"{Hidden}\"");
     }
 
     /// <summary>
@@ -54,12 +56,17 @@ public static partial class StreamUrlRedactor
     // The two segments after the stream type are the username and the password. timeshift
     // has more segments after them (duration, start), which are kept. A segment runs to the next
     // '/' only: these URLs are built from the raw password, and a '?' or '#' in it must not end
-    // the match and let the whole URL through. A '/' in the password still splits it, but such a
+    // the match and let the whole URL through. A segment can be empty: an unset username
+    // gives /live//password/1.ts. A '/' in the password still splits it, but such a
     // URL cannot be played in the first place. Dispatcharr's own API has /api/vod/series/{id}/,
     // which is not a stream URL.
-    [GeneratedRegex("(?<!/api/vod)/(live|movie|series|timeshift)/[^/]+/[^/]+/", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex("(?<!/api/vod)/(live|movie|series|timeshift)/[^/]*/[^/]*/", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex PathCredentials();
 
     [GeneratedRegex("([?&](?:username|password)=)[^&#]*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex QueryCredentials();
+
+    // The closing quote is optional: a logged sample may be cut off inside the value.
+    [GeneratedRegex("(\"(?:username|password)\"\\s*:\\s*)\"[^\"]*\"?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex JsonCredentials();
 }

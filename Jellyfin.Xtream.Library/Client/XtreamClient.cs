@@ -272,7 +272,10 @@ public class XtreamClient(HttpClient client, ILogger<XtreamClient> logger) : IXt
         }
         catch (JsonException ex)
         {
-            string jsonSample = jsonContent.Length > 500 ? string.Concat(jsonContent.AsSpan(0, 500), "...") : jsonContent;
+            // Redacted before it is cut: player_api.php returns the username and password in
+            // user_info, and a cut could leave half a value the pattern no longer recognises.
+            string redacted = StreamUrlRedactor.Redact(jsonContent);
+            string jsonSample = redacted.Length > 500 ? string.Concat(redacted.AsSpan(0, 500), "...") : redacted;
             logger.LogError(ex, "Failed to deserialize response from Xtream API (URL: {Url}). JSON content: {Json}", StreamUrlRedactor.Redact(uri), jsonSample);
             throw;
         }
