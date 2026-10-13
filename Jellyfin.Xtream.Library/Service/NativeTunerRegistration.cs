@@ -22,6 +22,7 @@ using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Model.LiveTv;
 using MediaBrowser.Model.Plugins;
+using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -48,7 +49,11 @@ public sealed class NativeTunerRegistration : IHostedService, IDisposable
 
     private const string LiveTvConfigKey = "livetv";
 
+    // RefreshGuideScheduledTask.Key in Jellyfin.LiveTv, which plugins cannot reference.
+    private const string RefreshGuideTaskKey = "RefreshGuide";
+
     private readonly ITunerHostManager _tunerHostManager;
+    private readonly ITaskManager _taskManager;
     private readonly IServerConfigurationManager _serverConfig;
     private readonly ILogger<NativeTunerRegistration> _logger;
     private readonly SemaphoreSlim _sync = new(1, 1);
@@ -58,14 +63,17 @@ public sealed class NativeTunerRegistration : IHostedService, IDisposable
     /// Initializes a new instance of the <see cref="NativeTunerRegistration"/> class.
     /// </summary>
     /// <param name="tunerHostManager">Jellyfin's tuner host manager.</param>
+    /// <param name="taskManager">Jellyfin's scheduled task manager.</param>
     /// <param name="serverConfig">The Jellyfin server configuration manager.</param>
     /// <param name="logger">The logger.</param>
     public NativeTunerRegistration(
         ITunerHostManager tunerHostManager,
+        ITaskManager taskManager,
         IServerConfigurationManager serverConfig,
         ILogger<NativeTunerRegistration> logger)
     {
         _tunerHostManager = tunerHostManager ?? throw new ArgumentNullException(nameof(tunerHostManager));
+        _taskManager = taskManager ?? throw new ArgumentNullException(nameof(taskManager));
         _serverConfig = serverConfig ?? throw new ArgumentNullException(nameof(serverConfig));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -73,12 +81,15 @@ public sealed class NativeTunerRegistration : IHostedService, IDisposable
     /// <inheritdoc />
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        await SyncSafelyAsync().ConfigureAwait(false);
+        if (await SyncSafelyAsync(atStartup: true).ConfigureAwait(false))
+        {
+            _ = QueueGuideRefreshWhenReadyAsync(TimeSpan.FromSeconds(5), TimeSpan.FromMinutes(3));
+        }
 
         var plugin = Plugin.Instance;
         if (plugin is not null)
         {
-            _subscribedHandler = (_, _) => _ = SyncSafelyAsync();
+            _subscribedHandler = (_, _) => _ = SyncSafelyAsync(atStartup: false);
             plugin.ConfigurationChanged += _subscribedHandler;
         }
     }
@@ -100,8 +111,11 @@ public sealed class NativeTunerRegistration : IHostedService, IDisposable
     /// Adds or removes the plugin's own tuner entry to match the plugin settings.
     /// </summary>
     /// <param name="config">The plugin configuration.</param>
-    /// <returns>A task.</returns>
-    internal async Task SyncAsync(PluginConfiguration config)
+    /// <param name="atStartup">True while the server starts. Jellyfin has not loaded its
+    /// scheduled tasks yet then, and saving a tuner with a guide refresh throws after the entry is
+    /// already saved, so the refresh is left to the caller.</param>
+    /// <returns>True when an entry was added.</returns>
+    internal async Task<bool> SyncAsync(PluginConfiguration config, bool atStartup)
     {
         await _sync.WaitAsync().ConfigureAwait(false);
         try
@@ -114,15 +128,18 @@ public sealed class NativeTunerRegistration : IHostedService, IDisposable
                 // Any entry of this type will do, including one added by hand before this existed.
                 if (!tuners.Any(t => string.Equals(t.Type, XtreamTunerHost.TunerType, StringComparison.OrdinalIgnoreCase)))
                 {
-                    await _tunerHostManager.SaveTunerHost(new TunerHostInfo
-                    {
-                        Type = XtreamTunerHost.TunerType,
-                        FriendlyName = FriendlyName,
-                    }).ConfigureAwait(false);
+                    await _tunerHostManager.SaveTunerHost(
+                        new TunerHostInfo
+                        {
+                            Type = XtreamTunerHost.TunerType,
+                            FriendlyName = FriendlyName,
+                        },
+                        dataSourceChanged: !atStartup).ConfigureAwait(false);
                     _logger.LogInformation("Added the Xtream Library native tuner under Live TV Tuner Devices");
+                    return true;
                 }
 
-                return;
+                return false;
             }
 
             foreach (var entry in tuners.Where(IsOwnEntry).ToList())
@@ -130,6 +147,8 @@ public sealed class NativeTunerRegistration : IHostedService, IDisposable
                 _tunerHostManager.DeleteTunerHost(entry.Id);
                 _logger.LogInformation("Removed the Xtream Library native tuner from Live TV Tuner Devices, since Native Tuner is off");
             }
+
+            return false;
         }
         finally
         {
@@ -144,21 +163,58 @@ public sealed class NativeTunerRegistration : IHostedService, IDisposable
         => string.Equals(info.Type, XtreamTunerHost.TunerType, StringComparison.OrdinalIgnoreCase)
             && string.Equals(info.FriendlyName, FriendlyName, StringComparison.Ordinal);
 
-    private async Task SyncSafelyAsync()
+    /// <summary>
+    /// Queues Jellyfin's guide refresh once its scheduled tasks are loaded, so the channels of a
+    /// tuner added during startup show without waiting for the daily run.
+    /// </summary>
+    /// <param name="interval">How often to look for the task.</param>
+    /// <param name="timeout">How long to keep looking.</param>
+    /// <returns>True when the refresh was queued.</returns>
+    internal async Task<bool> QueueGuideRefreshWhenReadyAsync(TimeSpan interval, TimeSpan timeout)
+    {
+        try
+        {
+            var deadline = DateTime.UtcNow + timeout;
+            while (true)
+            {
+                var refresh = _taskManager.ScheduledTasks
+                    .FirstOrDefault(t => string.Equals(t.ScheduledTask.Key, RefreshGuideTaskKey, StringComparison.Ordinal));
+                if (refresh is not null)
+                {
+                    _taskManager.QueueScheduledTask(refresh.ScheduledTask, new TaskOptions());
+                    _logger.LogInformation("Queued a guide refresh for the native tuner added at startup");
+                    return true;
+                }
+
+                if (DateTime.UtcNow >= deadline)
+                {
+                    _logger.LogInformation("Jellyfin's Refresh Guide task did not appear; the native tuner's channels show after its next scheduled run");
+                    return false;
+                }
+
+                await Task.Delay(interval).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not queue a guide refresh for the native tuner");
+            return false;
+        }
+    }
+
+    private async Task<bool> SyncSafelyAsync(bool atStartup)
     {
         try
         {
             var config = Plugin.Instance?.Configuration;
-            if (config is not null)
-            {
-                await SyncAsync(config).ConfigureAwait(false);
-            }
+            return config is not null && await SyncAsync(config, atStartup).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             // Never let this stop the server from starting or a settings save from completing;
             // adding the tuner by hand under Tuner Devices still works.
             _logger.LogWarning(ex, "Could not update the Xtream Library entry under Live TV Tuner Devices");
+            return false;
         }
     }
 }

@@ -13,11 +13,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using System;
 using System.Threading.Tasks;
+using FluentAssertions;
 using Jellyfin.Xtream.Library.Service;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Model.LiveTv;
+using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
@@ -31,6 +34,7 @@ namespace Jellyfin.Xtream.Library.Tests.Service;
 public class NativeTunerRegistrationTests
 {
     private readonly Mock<ITunerHostManager> _tunerHosts = new();
+    private readonly Mock<ITaskManager> _tasks = new();
     private readonly Mock<IServerConfigurationManager> _serverConfig = new();
     private readonly LiveTvOptions _liveTv = new() { TunerHosts = [] };
 
@@ -104,9 +108,54 @@ public class NativeTunerRegistrationTests
         _tunerHosts.Verify(t => t.SaveTunerHost(It.IsAny<TunerHostInfo>(), It.IsAny<bool>()), Times.Never);
     }
 
-    private async Task SyncAsync(bool liveTv, bool nativeTuner)
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task AddingAtStartup_DoesNotAskJellyfinToRefreshTheGuide(bool atStartup, bool expectedRefresh)
     {
-        using var registration = new NativeTunerRegistration(_tunerHosts.Object, _serverConfig.Object, NullLogger<NativeTunerRegistration>.Instance);
-        await registration.SyncAsync(new PluginConfiguration { EnableLiveTv = liveTv, EnableNativeTuner = nativeTuner });
+        // During startup Jellyfin has not loaded its tasks, and SaveTunerHost throws while
+        // queueing the refresh, after the entry is already saved. Measured on Jellyfin 12.
+        var added = await SyncAsync(liveTv: true, nativeTuner: true, atStartup);
+
+        added.Should().BeTrue();
+        _tunerHosts.Verify(t => t.SaveTunerHost(It.IsAny<TunerHostInfo>(), expectedRefresh), Times.Once);
+    }
+
+    [Fact]
+    public async Task GuideRefresh_IsQueuedOnceJellyfinHasLoadedTheTask()
+    {
+        var worker = new Mock<IScheduledTaskWorker>();
+        var task = new Mock<IScheduledTask>();
+        task.Setup(t => t.Key).Returns("RefreshGuide");
+        worker.Setup(w => w.ScheduledTask).Returns(task.Object);
+        var calls = 0;
+        _tasks.Setup(t => t.ScheduledTasks).Returns(() => ++calls < 3 ? [] : [worker.Object]);
+
+        using var registration = NewRegistration();
+        var queued = await registration.QueueGuideRefreshWhenReadyAsync(TimeSpan.FromMilliseconds(1), TimeSpan.FromSeconds(5));
+
+        queued.Should().BeTrue();
+        _tasks.Verify(t => t.QueueScheduledTask(task.Object, It.IsAny<TaskOptions>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GuideRefresh_GivesUpWhenTheTaskNeverAppears()
+    {
+        _tasks.Setup(t => t.ScheduledTasks).Returns([]);
+
+        using var registration = NewRegistration();
+        var queued = await registration.QueueGuideRefreshWhenReadyAsync(TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(20));
+
+        queued.Should().BeFalse();
+        _tasks.Verify(t => t.QueueScheduledTask(It.IsAny<IScheduledTask>(), It.IsAny<TaskOptions>()), Times.Never);
+    }
+
+    private NativeTunerRegistration NewRegistration()
+        => new(_tunerHosts.Object, _tasks.Object, _serverConfig.Object, NullLogger<NativeTunerRegistration>.Instance);
+
+    private async Task<bool> SyncAsync(bool liveTv, bool nativeTuner, bool atStartup = false)
+    {
+        using var registration = NewRegistration();
+        return await registration.SyncAsync(new PluginConfiguration { EnableLiveTv = liveTv, EnableNativeTuner = nativeTuner }, atStartup);
     }
 }
