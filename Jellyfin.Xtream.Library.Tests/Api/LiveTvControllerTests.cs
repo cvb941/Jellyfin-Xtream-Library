@@ -226,7 +226,7 @@ public class LiveTvControllerTests : IDisposable
 
         var result = await _controller.GetM3UPlaylist(System.Threading.CancellationToken.None);
 
-        result.Should().BeOfType<NotFoundResult>();
+        result.Should().BeOfType<ContentResult>().Which.StatusCode.Should().Be(StatusCodes.Status404NotFound);
     }
 
     [Fact]
@@ -242,7 +242,7 @@ public class LiveTvControllerTests : IDisposable
 
         var result = await _controller.GetM3UPlaylist(System.Threading.CancellationToken.None);
 
-        result.Should().BeOfType<NotFoundResult>();
+        result.Should().BeOfType<ContentResult>().Which.StatusCode.Should().Be(StatusCodes.Status404NotFound);
     }
 
     [Fact]
@@ -254,7 +254,7 @@ public class LiveTvControllerTests : IDisposable
 
         var result = await _controller.GetCatchupM3UPlaylist(System.Threading.CancellationToken.None);
 
-        result.Should().BeOfType<NotFoundResult>();
+        result.Should().BeOfType<ContentResult>().Which.StatusCode.Should().Be(StatusCodes.Status404NotFound);
     }
 
     [Fact]
@@ -298,7 +298,7 @@ public class LiveTvControllerTests : IDisposable
 
         var result = await _controller.GetM3UPlaylist(System.Threading.CancellationToken.None);
 
-        result.Should().BeOfType<NotFoundResult>();
+        result.Should().BeOfType<ContentResult>().Which.StatusCode.Should().Be(StatusCodes.Status404NotFound);
     }
 
     [Fact]
@@ -310,7 +310,7 @@ public class LiveTvControllerTests : IDisposable
 
         var result = await _controller.GetCatchupM3UPlaylist(System.Threading.CancellationToken.None);
 
-        result.Should().BeOfType<NotFoundResult>();
+        result.Should().BeOfType<ContentResult>().Which.StatusCode.Should().Be(StatusCodes.Status404NotFound);
     }
 
     [Fact]
@@ -359,7 +359,7 @@ public class LiveTvControllerTests : IDisposable
 
         var result = await _controller.GetEpgXml(System.Threading.CancellationToken.None);
 
-        result.Should().BeOfType<NotFoundResult>();
+        result.Should().BeOfType<ContentResult>().Which.StatusCode.Should().Be(StatusCodes.Status404NotFound);
     }
 
     /// <summary>
@@ -402,5 +402,25 @@ public class LiveTvControllerTests : IDisposable
         content.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
         content.ContentType.Should().StartWith("text/plain");
         content.Content.Should().Be(message);
+    }
+
+    [Theory]
+    [InlineData("LiveTv.m3u")]
+    [InlineData("Catchup.m3u")]
+    public async System.Threading.Tasks.Task HiddenEndpoint_AnswersLikeARouteThatDoesNotExist(string endpoint)
+    {
+        // NotFound() on an [ApiController] becomes ProblemDetails, and [Produces] then turns that
+        // into an empty 406, which tells a prober the endpoint exists. A plain, empty 404 does not.
+        Plugin.Instance.Configuration.PublishLiveTvPlaylists = false;
+
+        var result = endpoint == "LiveTv.m3u"
+            ? await _controller.GetM3UPlaylist(System.Threading.CancellationToken.None)
+            : await _controller.GetCatchupM3UPlaylist(System.Threading.CancellationToken.None);
+
+        result.Should().NotBeAssignableTo<Microsoft.AspNetCore.Mvc.Infrastructure.IClientErrorActionResult>();
+        result.Should().NotBeAssignableTo<ObjectResult>();
+        var content = result.Should().BeOfType<ContentResult>().Subject;
+        content.StatusCode.Should().Be(StatusCodes.Status404NotFound);
+        content.Content.Should().BeNull();
     }
 }

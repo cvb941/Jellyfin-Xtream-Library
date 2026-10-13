@@ -75,7 +75,7 @@ public class LiveTvController : ControllerBase
 
         if (!IsCallerAllowed(config))
         {
-            return NotFound();
+            return NotPublished();
         }
 
         if (!config.PublishLiveTvPlaylists)
@@ -83,7 +83,7 @@ public class LiveTvController : ControllerBase
             // Same answer as a route that does not exist. Debug only: this is what an anonymous
             // probe gets, and logging each one louder would let anyone fill the log.
             _logger.LogDebug("{Path} requested but Publish Playlists is off", Request?.Path.Value);
-            return NotFound();
+            return NotPublished();
         }
 
         if (!config.EnableLiveTv)
@@ -127,7 +127,7 @@ public class LiveTvController : ControllerBase
 
         if (!IsCallerAllowed(config))
         {
-            return NotFound();
+            return NotPublished();
         }
 
         if (!config.EnableLiveTv)
@@ -175,7 +175,7 @@ public class LiveTvController : ControllerBase
 
         if (!IsCallerAllowed(config))
         {
-            return NotFound();
+            return NotPublished();
         }
 
         if (!config.PublishLiveTvPlaylists)
@@ -183,7 +183,7 @@ public class LiveTvController : ControllerBase
             // Same answer as a route that does not exist. Debug only: this is what an anonymous
             // probe gets, and logging each one louder would let anyone fill the log.
             _logger.LogDebug("{Path} requested but Publish Playlists is off", Request?.Path.Value);
-            return NotFound();
+            return NotPublished();
         }
 
         if (!config.EnableLiveTv)
@@ -441,6 +441,14 @@ public class LiveTvController : ControllerBase
         return provider is not null
             && !string.IsNullOrEmpty(provider.BaseUrl)
             && !string.IsNullOrEmpty(provider.Username);
+    }
+
+    // The same answer as a route that does not exist: an empty 404. NotFound() is not that on
+    // an [ApiController]: it becomes a ProblemDetails object, which the [Produces] filter on
+    // these endpoints then turns into an empty 406, telling a prober the endpoint is there.
+    private static ContentResult NotPublished()
+    {
+        return new ContentResult { StatusCode = StatusCodes.Status404NotFound };
     }
 
     // The playlist and guide endpoints carry [Produces("audio/x-mpegurl")] or
