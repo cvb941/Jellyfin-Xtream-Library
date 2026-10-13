@@ -38,6 +38,9 @@ public class StreamUrlRedactorTests
     [InlineData("http://host/series/alice/opensesame/77.mp4", "http://host/series/***/***/77.mp4")]
     [InlineData("http://host/timeshift/alice/opensesame/60/2026-10-11:20-00/9.ts", "http://host/timeshift/***/***/60/2026-10-11:20-00/9.ts")]
     [InlineData("http://host/LIVE/alice/opensesame/1.m3u8", "http://host/LIVE/***/***/1.m3u8")]
+    [InlineData("http://host/live/alice/open?sesame/123.ts", "http://host/live/***/***/123.ts")]
+    [InlineData("http://host/live/alice/open#sesame/123.ts", "http://host/live/***/***/123.ts")]
+    [InlineData("http://host/live/al?ice/opensesame/123.ts", "http://host/live/***/***/123.ts")]
     [InlineData("http://host/player_api.php?username=alice&password=opensesame&action=get_vod_streams", "http://host/player_api.php?username=***&password=***&action=get_vod_streams")]
     [InlineData("http://host/player_api.php?action=get_series_info&password=opensesame&username=alice", "http://host/player_api.php?action=get_series_info&password=***&username=***")]
     public void Redact_HidesUsernameAndPassword(string url, string expected)
@@ -47,6 +50,7 @@ public class StreamUrlRedactorTests
 
     [Theory]
     [InlineData("http://dispatcharr:9191/api/vod/movies/12/providers/")]
+    [InlineData("http://dispatcharr:9191/api/vod/series/12/provider-info/")]
     [InlineData("http://host/proxy/ts/stream/3f2a")]
     [InlineData("/config/xtream-library/Movies/Live Free (2007)/Live Free (2007).strm")]
     public void Redact_LeavesOtherUrlsAlone(string url)
@@ -105,6 +109,6 @@ public class StreamUrlRedactorTests
             TState state,
             Exception? exception,
             Func<TState, Exception?, string> formatter)
-            => sink.Add($"[{logLevel}] {formatter(state, exception)}");
+            => sink.Add($"[{logLevel}] {formatter(state, exception)} {exception}");
     }
 }

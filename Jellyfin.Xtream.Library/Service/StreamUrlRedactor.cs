@@ -28,8 +28,8 @@ public static partial class StreamUrlRedactor
     private const string Hidden = "***";
 
     /// <summary>
-    /// Returns the URL with the credentials replaced by ***. Anything that is not an Xtream URL
-    /// comes back unchanged.
+    /// Returns the URL with the credentials replaced by ***. A URL without credentials in either
+    /// place comes back unchanged.
     /// </summary>
     /// <param name="url">The URL to log.</param>
     /// <returns>The URL without credentials.</returns>
@@ -52,8 +52,12 @@ public static partial class StreamUrlRedactor
     public static string Redact(System.Uri? url) => Redact(url?.OriginalString);
 
     // The two segments after the stream type are the username and the password. timeshift
-    // has more segments after them (duration, start), which are kept.
-    [GeneratedRegex("/(live|movie|series|timeshift)/[^/?#]+/[^/?#]+/", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    // has more segments after them (duration, start), which are kept. A segment runs to the next
+    // '/' only: these URLs are built from the raw password, and a '?' or '#' in it must not end
+    // the match and let the whole URL through. A '/' in the password still splits it, but such a
+    // URL cannot be played in the first place. Dispatcharr's own API has /api/vod/series/{id}/,
+    // which is not a stream URL.
+    [GeneratedRegex("(?<!/api/vod)/(live|movie|series|timeshift)/[^/]+/[^/]+/", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex PathCredentials();
 
     [GeneratedRegex("([?&](?:username|password)=)[^&#]*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
