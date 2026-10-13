@@ -2684,6 +2684,7 @@ public partial class StrmSyncService
         // /series/ route does not accept (GitHub #153). The incremental filter and every smart
         // skip below decide from the snapshot or from what is on disk, so none of them would ever
         // rewrite those files. One pass with all of them off reads every series again.
+        var enableDispatcharrMode = provider.EnableDispatcharrMode && !string.IsNullOrEmpty(provider.DispatcharrApiUser);
         var repairSeriesIds = SeriesIdsNeedRepair(provider, hintSnapshot);
         var smartSkipSeries = provider.SmartSkipExisting && !repairSeriesIds;
         if (repairSeriesIds)
@@ -3317,8 +3318,12 @@ public partial class StrmSyncService
                         targetFolders.Add(string.Empty);
                     }
 
-                    // Smart skip check with exact folder name (skip when no existing folders - initial scan)
-                    if (smartSkipSeries && existingSeriesFolderCounts.Count > 0)
+                    // Smart skip check with exact folder name (skip when no existing folders - initial scan).
+                    // Not in Dispatcharr Mode: it compares file counts only, so a series whose STRMs
+                    // carry the episode ids earlier versions wrote there (GitHub #153) would keep
+                    // them. Without it the write loop below compares each file's contents and
+                    // rewrites only the ones that differ.
+                    if (smartSkipSeries && !enableDispatcharrMode && existingSeriesFolderCounts.Count > 0)
                     {
                         bool anyNeedsSync = false;
                         foreach (var targetFolder in targetFolders)
@@ -3637,6 +3642,10 @@ public partial class StrmSyncService
                     _logger.LogWarning(ex, "Failed to sync series: {SeriesName}", series.Name);
                     Interlocked.Increment(ref errors);
                     Interlocked.Increment(ref seriesSkipped);
+
+                    // A series that could not be read this run is not gone. Without this its
+                    // existing STRMs count as orphans and cleanup deletes them.
+                    KeepExistingSeriesFiles(series.Name, provider, seriesPath, categoryIds, folderMappings, seriesFolderLookup, syncedFiles);
                     failedItems.Add(new FailedItem
                     {
                         ItemType = "Series",
@@ -3730,6 +3739,47 @@ public partial class StrmSyncService
         }
 
         return TruncateFileNameToFsLimit(ApplyFileNameRegexPatterns(fileName, regexRemovalPatterns));
+    }
+
+    private static void KeepExistingSeriesFiles(
+        string seriesTitle,
+        ProviderConfig provider,
+        string seriesPath,
+        IEnumerable<int> categoryIds,
+        Dictionary<int, List<string>> folderMappings,
+        Dictionary<string, (string Path, int Count)> seriesFolderLookup,
+        ConcurrentDictionary<string, byte> syncedFiles)
+    {
+        string seriesName = SanitizeFileName(seriesTitle, provider.CustomTitleRemoveTerms);
+        int? year = ExtractYear(seriesTitle);
+        string baseName = year.HasValue ? $"{seriesName} ({year})" : seriesName;
+
+        foreach (var targetFolder in BuildSeriesTargetFolders(categoryIds, folderMappings))
+        {
+            string seriesBasePath = string.IsNullOrEmpty(targetFolder)
+                ? seriesPath
+                : Path.Combine(seriesPath, targetFolder);
+            if (!seriesFolderLookup.TryGetValue(seriesBasePath + "|" + baseName, out var match))
+            {
+                continue;
+            }
+
+            try
+            {
+                foreach (var strm in Directory.GetFiles(match.Path, "*.strm", SearchOption.AllDirectories))
+                {
+                    syncedFiles.TryAdd(strm, 0);
+                }
+            }
+            catch (IOException)
+            {
+                // Best effort, as for the skipped series above.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best effort, as for the skipped series above.
+            }
+        }
     }
 
     internal static bool HasCompleteExistingSeriesFolders(

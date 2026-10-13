@@ -17,6 +17,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -48,6 +49,7 @@ public class SeriesIdRepairTests : IDisposable
 
     private readonly string _libraryPath;
     private readonly Mock<IXtreamClient> _client = new();
+    private bool _seriesFetchFails;
 
     public SeriesIdRepairTests()
     {
@@ -59,14 +61,16 @@ public class SeriesIdRepairTests : IDisposable
         _client.Setup(c => c.GetSeriesByCategoryAsync(It.IsAny<ConnectionInfo>(), 1, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Series> { new() { SeriesId = 7, Name = "Repair Show (2024)" } });
         _client.Setup(c => c.GetSeriesStreamsBySeriesAsync(It.IsAny<ConnectionInfo>(), 7, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new SeriesStreamInfo
-            {
-                Seasons = new List<Season> { new() { SeasonNumber = 1 } },
-                Episodes = new Dictionary<int, ICollection<Episode>>
+            .ReturnsAsync(() => _seriesFetchFails
+                ? throw new HttpRequestException("provider unavailable")
+                : new SeriesStreamInfo
                 {
-                    [1] = new List<Episode> { new() { EpisodeId = 11, EpisodeNum = 1, Season = 1, Title = "Pilot", ContainerExtension = "mkv" } },
-                },
-            });
+                    Seasons = new List<Season> { new() { SeasonNumber = 1 } },
+                    Episodes = new Dictionary<int, ICollection<Episode>>
+                    {
+                        [1] = new List<Episode> { new() { EpisodeId = 11, EpisodeNum = 1, Season = 1, Title = "Pilot", ContainerExtension = "mkv" } },
+                    },
+                });
     }
 
     public void Dispose()
@@ -117,10 +121,13 @@ public class SeriesIdRepairTests : IDisposable
     [InlineData(true, false, true)]
     [InlineData(false, false, false)]
     [InlineData(false, true, true)]
-    public void SeriesIdsFromXtreamApiAfterRun_OnlyAdvancesWhenSeriesWereSynced(
+    public void SeriesIdsFromXtreamApiAfterRun_FollowsSyncSeriesAndCarriesForwardOtherwise(
         bool syncedSeries, bool previousMarker, bool expected)
     {
-        // A run that skipped series has rewritten nothing, so it must not record the repair as done.
+        // The marker says every series in the snapshot was written from get_series_info. A series
+        // that failed or was never listed is not in the snapshot, so it is fetched next run anyway,
+        // and in Dispatcharr Mode a fetched series has every file compared. A run with series off
+        // wrote nothing, so the old value stays.
         StrmSyncService.SeriesIdsFromXtreamApiAfterRun(syncedSeries, new ContentSnapshot { SeriesIdsFromXtreamApi = previousMarker })
             .Should().Be(expected);
     }
@@ -162,6 +169,54 @@ public class SeriesIdRepairTests : IDisposable
         (await File.ReadAllTextAsync(strm).ConfigureAwait(true)).Should().Be(BrokenUrl);
     }
 
+    [Fact]
+    public async Task NoSnapshotInDispatcharrMode_SmartSkipOnFileCountDoesNotKeepAWrongId()
+    {
+        // Incremental sync and grouping off: no snapshot is ever saved, so the marker never
+        // applies. Smart skip still compares file counts, which match here.
+        await RunSyncAsync(dispatcharrMode: true, incremental: false).ConfigureAwait(true);
+        var strm = SingleStrm();
+        await File.WriteAllTextAsync(strm, BrokenUrl).ConfigureAwait(true);
+
+        await RunSyncAsync(dispatcharrMode: true, incremental: false).ConfigureAwait(true);
+
+        (await File.ReadAllTextAsync(strm).ConfigureAwait(true)).Should().Contain(GoodUrl);
+    }
+
+    [Fact]
+    public async Task SeriesThatFailsDuringTheRepair_IsRewrittenOnTheNextRun()
+    {
+        await RunSyncAsync(dispatcharrMode: true).ConfigureAwait(true);
+        var strm = SingleStrm();
+        await File.WriteAllTextAsync(strm, BrokenUrl).ConfigureAwait(true);
+        ClearMarkerInLatestSnapshot();
+
+        // The repair pass cannot read the series. The marker still goes to true, but the series
+        // stays out of the snapshot.
+        _seriesFetchFails = true;
+        await RunSyncAsync(dispatcharrMode: true).ConfigureAwait(true);
+        (await File.ReadAllTextAsync(strm).ConfigureAwait(true)).Should().Be(BrokenUrl);
+
+        _seriesFetchFails = false;
+        await RunSyncAsync(dispatcharrMode: true).ConfigureAwait(true);
+
+        (await File.ReadAllTextAsync(strm).ConfigureAwait(true)).Should().Contain(GoodUrl);
+    }
+
+    [Fact]
+    public async Task SeriesThatCannotBeRead_KeepsItsFilesWhenCleanupIsOn()
+    {
+        // One episode, so the orphan safety threshold does not apply and nothing else would stop
+        // the cleanup from deleting it.
+        await RunSyncAsync(dispatcharrMode: true, incremental: false, cleanupOrphans: true).ConfigureAwait(true);
+        var strm = SingleStrm();
+
+        _seriesFetchFails = true;
+        await RunSyncAsync(dispatcharrMode: true, incremental: false, cleanupOrphans: true).ConfigureAwait(true);
+
+        File.Exists(strm).Should().BeTrue("a series the provider could not answer for is not a deleted series");
+    }
+
     private string SingleStrm()
         => Directory.GetFiles(Path.Combine(_libraryPath, "Series"), "*.strm", SearchOption.AllDirectories).Should().ContainSingle().Subject;
 
@@ -179,7 +234,7 @@ public class SeriesIdRepairTests : IDisposable
         File.WriteAllText(file, pattern.Replace(text, "${1}false"));
     }
 
-    private async Task<SyncResult> RunSyncAsync(bool dispatcharrMode)
+    private async Task<SyncResult> RunSyncAsync(bool dispatcharrMode, bool incremental = true, bool cleanupOrphans = false)
     {
         var appPaths = new Mock<IServerApplicationPaths>();
         appPaths.Setup(p => p.PluginConfigurationsPath).Returns(_libraryPath);
@@ -201,8 +256,9 @@ public class SeriesIdRepairTests : IDisposable
                 LibraryPath = _libraryPath,
                 SyncMovies = false,
                 SyncSeries = true,
-                EnableIncrementalSync = true,
+                EnableIncrementalSync = incremental,
                 SmartSkipExisting = true,
+                CleanupOrphans = cleanupOrphans,
                 DownloadArtworkForUnmatched = false,
                 SyncParallelism = 1,
                 EnableDispatcharrMode = dispatcharrMode,
