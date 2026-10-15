@@ -4873,18 +4873,38 @@ public partial class StrmSyncService
         }
 
         string? temporaryPath = null;
+
+        // HttpClient.Timeout stops counting once the headers are in (ResponseHeadersRead), so a
+        // server that stalls halfway through the image would hold the sync. One deadline covers
+        // the request and every read of the body.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (client.Timeout != Timeout.InfiniteTimeSpan)
+        {
+            deadline.CancelAfter(client.Timeout);
+        }
+
+        var token = deadline.Token;
         try
         {
-            using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
             if ((int)response.StatusCode >= 500)
             {
                 NoteFailure(breaker, host, logger);
                 return false;
             }
 
-            breaker.RecordAnswer(host);
-            if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > MaxArtworkBytes)
+            if (!response.IsSuccessStatusCode)
             {
+                // A 404 or other refusal is a complete answer: the host is up.
+                breaker.RecordAnswer(host);
+                return false;
+            }
+
+            // The host only counts as answering once the image has arrived in full; one that
+            // sends headers and then stalls must still add up to being skipped.
+            if (response.Content.Headers.ContentLength > MaxArtworkBytes)
+            {
+                breaker.RecordAnswer(host);
                 return false;
             }
 
@@ -4896,7 +4916,7 @@ public partial class StrmSyncService
 
             temporaryPath = destinationPath + ".part-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
             long written = 0;
-            var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            var stream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
             await using (stream.ConfigureAwait(false))
             {
                 var file = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true);
@@ -4904,7 +4924,7 @@ public partial class StrmSyncService
                 {
                     var buffer = new byte[81920];
                     int read;
-                    while ((read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+                    while ((read = await stream.ReadAsync(buffer, token).ConfigureAwait(false)) > 0)
                     {
                         // Content-Length can be missing or wrong, so the cap is enforced on what arrives.
                         written += read;
@@ -4913,11 +4933,12 @@ public partial class StrmSyncService
                             return false;
                         }
 
-                        await file.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                        await file.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
                     }
                 }
             }
 
+            breaker.RecordAnswer(host);
             try
             {
                 File.Move(temporaryPath, destinationPath, overwrite: false);
@@ -4935,10 +4956,10 @@ public partial class StrmSyncService
             // The sync is being stopped; that says nothing about the host.
             return false;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
         {
-            // Connection refused, DNS failure, or the timeout (HttpClient reports it as a
-            // TaskCanceledException without the caller's token being cancelled).
+            // Connection refused, DNS failure, or the deadline. The caller's own cancellation is
+            // handled above, so a cancellation here is the timeout.
             logger.LogDebug(ex, "Failed to download image from {Url}", StreamUrlRedactor.Redact(imageUrl));
             NoteFailure(breaker, host, logger);
             return false;

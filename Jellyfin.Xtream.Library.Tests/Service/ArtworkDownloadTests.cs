@@ -160,6 +160,29 @@ public class ArtworkDownloadTests : IDisposable
     }
 
     [Fact]
+    public async Task ServerThatStallsHalfwayThroughTheImage_IsCutOffAndCounted()
+    {
+        // The headers arrive at once; the body never finishes. HttpClient.Timeout alone does not
+        // cover this once the headers are in.
+        var handler = new Handler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new StallingStream()) });
+        var breaker = new ArtworkHostBreaker();
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromMilliseconds(100) };
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var ok = await StrmSyncService.DownloadImageCoreAsync(client, breaker, "http://stall.test/a.jpg", Path.Combine(_dir, "a.jpg"), new ListLogger(_log), CancellationToken.None);
+
+        ok.Should().BeFalse();
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10));
+        Directory.GetFiles(_dir).Should().BeEmpty();
+        for (int i = 1; i < ArtworkHostBreaker.FailureThreshold; i++)
+        {
+            await StrmSyncService.DownloadImageCoreAsync(client, breaker, $"http://stall.test/{i}.jpg", Path.Combine(_dir, $"{i}.jpg"), new ListLogger(_log), CancellationToken.None);
+        }
+
+        breaker.IsSkipped("stall.test").Should().BeTrue();
+    }
+
+    [Fact]
     public async Task StoppingTheSync_IsNotCountedAgainstTheHost()
     {
         var handler = new Handler(async (_, ct) =>
@@ -303,6 +326,50 @@ public class ArtworkDownloadTests : IDisposable
             _position += n;
             return n;
         }
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    // Sends a few bytes, then waits until it is cancelled.
+    private sealed class StallingStream : Stream
+    {
+        private bool _sent;
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position { get => 0; set => throw new NotSupportedException(); }
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (!_sent)
+            {
+                _sent = true;
+                buffer.Span[0] = 1;
+                return 1;
+            }
+
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return 0;
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            => ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
 
         public override void Flush()
         {
