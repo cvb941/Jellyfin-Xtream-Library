@@ -4956,9 +4956,10 @@ public partial class StrmSyncService
             // The sync is being stopped; that says nothing about the host.
             return false;
         }
-        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or HttpIOException or OperationCanceledException)
         {
-            // Connection refused, DNS failure, or the deadline. The caller's own cancellation is
+            // Connection refused, DNS failure, the connection dropping halfway through the image
+            // (HttpIOException), or the deadline. The caller's own cancellation is
             // handled above, so a cancellation here is the timeout.
             logger.LogDebug(ex, "Failed to download image from {Url}", StreamUrlRedactor.Redact(imageUrl));
             NoteFailure(breaker, host, logger);

@@ -183,6 +183,21 @@ public class ArtworkDownloadTests : IDisposable
     }
 
     [Fact]
+    public async Task ConnectionDroppedHalfwayThroughTheImage_CountsAsAFailure()
+    {
+        var handler = new Handler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new DroppingStream()) });
+        var breaker = new ArtworkHostBreaker();
+
+        for (int i = 0; i < 10; i++)
+        {
+            (await DownloadAsync(handler, $"http://drop.test/{i}.jpg", $"{i}.jpg", breaker)).Should().BeFalse();
+        }
+
+        handler.Requests.Should().Be(ArtworkHostBreaker.FailureThreshold);
+        Directory.GetFiles(_dir).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task StoppingTheSync_IsNotCountedAgainstTheHost()
     {
         var handler = new Handler(async (_, ct) =>
@@ -370,6 +385,44 @@ public class ArtworkDownloadTests : IDisposable
 
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
             => ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    // Sends a few bytes, then the connection drops.
+    private sealed class DroppingStream : Stream
+    {
+        private bool _sent;
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position { get => 0; set => throw new NotSupportedException(); }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (!_sent)
+            {
+                _sent = true;
+                buffer[offset] = 1;
+                return 1;
+            }
+
+            throw new HttpIOException(HttpRequestError.ResponseEnded, "The response ended prematurely.");
+        }
 
         public override void Flush()
         {
