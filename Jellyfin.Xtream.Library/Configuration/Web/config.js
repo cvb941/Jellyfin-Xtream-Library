@@ -1246,6 +1246,7 @@ var XtreamLibraryConfig = (function () {
 
         statusSpan.innerHTML = '<span style="color: orange;">Retrying failed items...</span>';
 
+        // The retry runs as a sync in the background; follow it like a sync.
         fetch(ApiClient.getUrl('XtreamLibrary/RetryFailed'), {
             method: 'POST',
             headers: {
@@ -1254,11 +1255,12 @@ var XtreamLibraryConfig = (function () {
         }).then(function (response) {
             return response.json();
         }).then(function (data) {
-            if (data.Success) {
-                statusSpan.innerHTML = '<span style="color: green;">Retry completed!</span>';
-                self.loadSyncStatus();
+            if (data.Success || (data.Message && data.Message.includes('already in progress'))) {
+                statusSpan.innerHTML = '<span style="color: orange;">Retrying failed items: sync in progress...</span>';
+                self.startProgressPolling();
+                self.pollForCompletion();
             } else {
-                statusSpan.innerHTML = '<span style="color: red;">Retry failed: ' + (data.Error || 'Unknown error') + '</span>';
+                statusSpan.innerHTML = '<span style="color: red;">Retry failed: ' + (data.Message || data.Error || 'Unknown error') + '</span>';
             }
         }).catch(function (error) {
             console.error('Retry error:', error);
@@ -2556,13 +2558,14 @@ var XtreamLibraryConfig = (function () {
             method: 'POST',
             headers: { 'Authorization': 'MediaBrowser Token=' + ApiClient.accessToken() }
         }).then(function (r) { return r.json(); }).then(function (data) {
-            if (data.Success) {
-                if (actionSpan) actionSpan.innerHTML = '<span style="color: green;">Retry completed!</span>';
+            if (data.Success || (data.Message && data.Message.includes('already in progress'))) {
+                if (actionSpan) actionSpan.innerHTML = '<span style="color: orange;">Retrying failed items: sync in progress...</span>';
+                self.startDashboardProgressPolling();
+                self.startProgressPolling();
+                self.pollForCompletion();
             } else {
-                if (actionSpan) actionSpan.innerHTML = '<span style="color: red;">Retry failed: ' + (data.Error || 'Unknown') + '</span>';
+                if (actionSpan) actionSpan.innerHTML = '<span style="color: red;">Retry failed: ' + (data.Message || data.Error || 'Unknown') + '</span>';
             }
-            self.loadDashboard();
-            self.loadSyncStatus();
         }).catch(function (err) {
             if (actionSpan) actionSpan.innerHTML = '<span style="color: red;">Retry failed: ' + (err.message || 'Error') + '</span>';
         });

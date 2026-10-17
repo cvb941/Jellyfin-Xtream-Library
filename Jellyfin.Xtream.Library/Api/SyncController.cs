@@ -199,13 +199,12 @@ public class SyncController : ControllerBase
     /// <summary>
     /// Retries syncing all failed items from the last sync.
     /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The retry result.</returns>
+    /// <returns>Whether the retry started.</returns>
     [HttpPost("RetryFailed")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<SyncResult>> RetryFailed(CancellationToken cancellationToken)
+    public ActionResult RetryFailed()
     {
         if (_syncService.FailedItems.Count == 0)
         {
@@ -219,9 +218,21 @@ public class SyncController : ControllerBase
 
         _logger.LogInformation("Retry failed items triggered via API");
 
-        var result = await _syncService.RetryFailedAsync(cancellationToken).ConfigureAwait(false);
+        // A retry is a sync now, and a sync can take minutes. Run it in the background like
+        // Sync does, so a closed browser tab does not cancel it.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _syncService.RetryFailedAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Background retry failed with unhandled exception");
+            }
+        });
 
-        return Ok(result);
+        return Ok(new { Success = true, Message = "Retry started: a sync runs in the background and retries the failed items." });
     }
 
     /// <summary>
