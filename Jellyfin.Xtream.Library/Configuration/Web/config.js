@@ -2069,11 +2069,11 @@ var XtreamLibraryConfig = (function () {
             hint.innerHTML = native
                 ? 'The plugin lists itself under Dashboard &rarr; Live TV &rarr; Tuner Devices as <strong>Xtream '
                     + 'Library (added by the plugin)</strong>. Do not add a second one by hand, and no M3U tuner '
-                    + 'either, or every channel appears twice. This tuner always transcodes, and a channel can '
-                    + 'take around 10 seconds to start the first time, because Jellyfin examines the stream first.'
+                    + 'either, or every channel appears twice. This tuner always transcodes, and a channel can take '
+                    + 'a few seconds longer to start the first time, because Jellyfin examines the stream first.'
                 : 'Add an <strong>M3U Tuner</strong> (not HDHomeRun) under Dashboard &rarr; Live TV &rarr; Tuner '
-                    + 'Devices with the M3U Playlist URL below. Channels start faster and can stream without '
-                    + 'transcoding, but the playlist carries your provider password: see Setup URLs.';
+                    + 'Devices with the M3U Playlist URL below. It can stream without transcoding, but the '
+                    + 'playlist carries your provider password: see Setup URLs.';
         }
         var warning = document.getElementById('tunerChoiceWarning');
         if (warning) {

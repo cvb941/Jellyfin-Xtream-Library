@@ -95,7 +95,8 @@ public sealed class NativeTunerWarmup : IHostedService, IDisposable
                 return;
             }
 
-            var channels = await tunerHost.GetChannels(false, cancellationToken).ConfigureAwait(false);
+            // true: a guide refresh queued at startup may already have loaded the list.
+            var channels = await tunerHost.GetChannels(true, cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Loaded {Count} channels for the native tuner ahead of first use", channels.Count);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
