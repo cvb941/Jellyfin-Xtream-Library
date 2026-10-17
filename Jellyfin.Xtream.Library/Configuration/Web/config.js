@@ -2163,29 +2163,43 @@ var XtreamLibraryConfig = (function () {
         });
     },
 
-    cleanConfirmMessage: function (folder) {
-        var name = document.getElementById('txtName').value.trim() || ('Provider ' + (this.activeProviderIndex + 1));
-        var root = document.getElementById('txtLibraryPath').value.trim().replace(/\/$/, '');
-        return 'Delete every ' + (folder === 'Movies' ? 'movie' : 'series') + ' file of "' + name + '" in '
+    // Built from the saved provider, because that is what the server deletes: the folder under
+    // the saved LibraryPath. The form may hold an edit that has not been saved yet.
+    cleanConfirmMessage: function (folder, saved) {
+        var name = (saved.Name || '').trim() || ('Provider ' + (this.activeProviderIndex + 1));
+        var root = (saved.LibraryPath || '').trim().replace(/\/$/, '');
+        var message = 'Delete every ' + (folder === 'Movies' ? 'movie' : 'series') + ' file of "' + name + '" in '
             + root + '/' + folder + '?\n\n'
             + 'The next sync writes them again, but Jellyfin sees them as new items: watched status, '
             + 'favourites and resume points are lost. This cannot be undone.';
+        var formRoot = document.getElementById('txtLibraryPath').value.trim().replace(/\/$/, '');
+        if (formRoot !== root) {
+            message += '\n\nThe Library Path field has a change that is not saved. This deletes the saved '
+                + 'folder named above, not ' + formRoot + '/' + folder + '.';
+        }
+        return message;
+    },
+
+    confirmAndClean: function (folder, endpoint) {
+        var self = this;
+        ApiClient.getPluginConfiguration(this.pluginUniqueId).then(function (config) {
+            var saved = (config.Providers || [])[self.activeProviderIndex];
+            if (!saved) {
+                Dashboard.alert('This provider has not been saved yet, so there is nothing to delete.');
+                return;
+            }
+            if (confirm(self.cleanConfirmMessage(folder, saved))) {
+                self.cleanLibraryFolder(endpoint);
+            }
+        });
     },
 
     cleanMovies: function () {
-        if (!confirm(this.cleanConfirmMessage('Movies'))) {
-            return;
-        }
-
-        this.cleanLibraryFolder('CleanMovies');
+        this.confirmAndClean('Movies', 'CleanMovies');
     },
 
     cleanSeries: function () {
-        if (!confirm(this.cleanConfirmMessage('Series'))) {
-            return;
-        }
-
-        this.cleanLibraryFolder('CleanSeries');
+        this.confirmAndClean('Series', 'CleanSeries');
     },
 
     cleanLibraryFolder: function (endpoint) {

@@ -309,10 +309,19 @@ test('the dashboard asks for a provider only while none is set up', async () => 
     assert.strictEqual(configured.page.elements.emptyStateCard.style.display, 'none');
 });
 
-test('the delete question names the provider, the folder and what is lost', async () => {
-    const { cfg } = await roundTrip(fixture());
-    const message = cfg.cleanConfirmMessage('Series');
+test('the delete question names the saved provider and folder, and what is lost', async () => {
+    const { cfg, page } = await roundTrip(fixture());
+    const saved = fixture().Providers[0];
+    let message = cfg.cleanConfirmMessage('Series', saved);
     assert.match(message, /"Provider 1 name"/);
     assert.match(message, /\/media\/lib1\/Series\?/);
     assert.match(message, /watched status/);
+    assert.doesNotMatch(message, /not saved/);
+
+    // The server deletes under the saved path, so an unsaved edit in the field must not be named
+    // as the folder that goes.
+    page.elements.txtLibraryPath.value = '/media/elsewhere';
+    message = cfg.cleanConfirmMessage('Series', saved);
+    assert.match(message, /in \/media\/lib1\/Series\?/);
+    assert.match(message, /not saved/);
 });
