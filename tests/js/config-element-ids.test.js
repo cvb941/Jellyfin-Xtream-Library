@@ -22,8 +22,12 @@ const JS = fs.readFileSync(path.join(WEB, 'config.js'), 'utf8');
 const HTML = fs.readFileSync(path.join(WEB, 'config.html'), 'utf8');
 
 test('every element config.js looks up exists in config.html', () => {
-    const wanted = new Set([...JS.matchAll(/getElementById\('([^']+)'\)/g)].map((m) => m[1]));
-    const present = new Set([...HTML.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
+    const wanted = new Set([
+        ...JS.matchAll(/getElementById\(\s*['"]([^'"]+)['"]\s*\)/g),
+        ...JS.matchAll(/querySelector(?:All)?\(\s*['"]#([A-Za-z_][\w-]*)/g),
+    ].map((m) => m[1]));
+    // (?:^|\s) rather than \b, so a data-id="..." attribute does not count as an id.
+    const present = new Set([...HTML.matchAll(/(?:^|\s)id="([^"]+)"/g)].map((m) => m[1]));
     const missing = [...wanted].filter((id) => !present.has(id)).sort();
 
     assert.ok(wanted.size > 100, `expected config.js to look up many ids, found ${wanted.size}`);
@@ -31,7 +35,7 @@ test('every element config.js looks up exists in config.html', () => {
 });
 
 test('no id appears twice on the page', () => {
-    const ids = [...HTML.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
+    const ids = [...HTML.matchAll(/(?:^|\s)id="([^"]+)"/g)].map((m) => m[1]);
     const seen = new Set();
     const twice = ids.filter((id) => (seen.has(id) ? true : (seen.add(id), false)));
     assert.deepStrictEqual(twice, [], `ids used twice: ${twice.join(', ')}`);
