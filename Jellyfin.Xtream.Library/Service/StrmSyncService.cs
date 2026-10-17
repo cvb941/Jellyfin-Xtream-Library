@@ -74,6 +74,7 @@ public partial class StrmSyncService
     private bool _historyLoaded;
     private CancellationTokenSource? _currentSyncCts;
     private volatile bool _syncSuppressed;
+    private int _syncActive;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="StrmSyncService"/> class.
@@ -131,6 +132,11 @@ public partial class StrmSyncService
     /// Gets the current sync progress.
     /// </summary>
     public SyncProgress CurrentProgress { get; } = new SyncProgress();
+
+    /// <summary>
+    /// Gets a value indicating whether a sync is running or about to start.
+    /// </summary>
+    public bool IsSyncActive => Volatile.Read(ref _syncActive) != 0 || CurrentProgress.IsRunning;
 
     private string SyncHistoryPath => Path.Combine(_appPaths.DataPath, "xtream-library", "sync_history.json");
 
@@ -248,6 +254,27 @@ public partial class StrmSyncService
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The aggregated sync result across all providers.</returns>
     public async Task<SyncResult> SyncAsync(CancellationToken cancellationToken)
+    {
+        // One sync at a time, whoever starts it: the Sync and Retry buttons, a double click, or
+        // the scheduled task. The buttons check CurrentProgress.IsRunning first, but that is set
+        // a little way into the sync, so two requests close together could both get through.
+        if (Interlocked.CompareExchange(ref _syncActive, 1, 0) != 0)
+        {
+            _logger.LogInformation("A sync is already running; not starting another");
+            return new SyncResult { StartTime = DateTime.UtcNow, EndTime = DateTime.UtcNow, Error = "A sync is already in progress." };
+        }
+
+        try
+        {
+            return await SyncOnceAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Volatile.Write(ref _syncActive, 0);
+        }
+    }
+
+    private async Task<SyncResult> SyncOnceAsync(CancellationToken cancellationToken)
     {
         var config = Plugin.Instance.Configuration;
         config.Validate();

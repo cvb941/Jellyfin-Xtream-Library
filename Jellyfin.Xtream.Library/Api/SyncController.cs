@@ -110,7 +110,7 @@ public class SyncController : ControllerBase
     public ActionResult TriggerSync()
     {
         // Check if sync is already running
-        if (_syncService.CurrentProgress.IsRunning)
+        if (_syncService.IsSyncActive)
         {
             return Conflict(new { Success = false, Message = "A sync is already in progress." });
         }
@@ -211,12 +211,16 @@ public class SyncController : ControllerBase
             return BadRequest("No failed items to retry.");
         }
 
-        if (_syncService.CurrentProgress.IsRunning)
+        if (_syncService.IsSyncActive)
         {
             return Conflict(new { Success = false, Message = "A sync is already in progress." });
         }
 
         _logger.LogInformation("Retry failed items triggered via API");
+
+        // Same as Sync: a click is a request to run, so it lifts the pause a library clean sets.
+        // Without this the sync behind the retry returns at once and nothing is retried.
+        _syncService.ClearSuppression();
 
         // A retry is a sync now, and a sync can take minutes. Run it in the background like
         // Sync does, so a closed browser tab does not cancel it.
