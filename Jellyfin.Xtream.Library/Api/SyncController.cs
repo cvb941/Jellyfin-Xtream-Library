@@ -204,11 +204,17 @@ public class SyncController : ControllerBase
     [HttpPost("RetryFailed")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<SyncResult>> RetryFailed(CancellationToken cancellationToken)
     {
         if (_syncService.FailedItems.Count == 0)
         {
             return BadRequest("No failed items to retry.");
+        }
+
+        if (_syncService.CurrentProgress.IsRunning)
+        {
+            return Conflict(new { Success = false, Message = "A sync is already in progress." });
         }
 
         _logger.LogInformation("Retry failed items triggered via API");

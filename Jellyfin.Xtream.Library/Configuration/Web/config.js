@@ -90,7 +90,6 @@ var XtreamLibraryConfig = (function () {
             DispatcharrApiPass: '',
             EnableIncrementalSync: true,
             FullSyncIntervalDays: 7,
-            FullSyncChangeThreshold: 0.5,
             CleanupOrphans: true,
             OrphanSafetyThreshold: 0.2,
             SmartSkipExisting: true,
@@ -175,7 +174,6 @@ var XtreamLibraryConfig = (function () {
         document.getElementById('chkDownloadArtworkForUnmatched').checked = p.DownloadArtworkForUnmatched !== false;
         document.getElementById('chkEnableIncrementalSync').checked = p.EnableIncrementalSync !== false;
         document.getElementById('txtFullSyncIntervalDays').value = p.FullSyncIntervalDays || 7;
-        document.getElementById('txtFullSyncChangeThreshold').value = Math.round((p.FullSyncChangeThreshold || 0.50) * 100);
         document.getElementById('chkEnableProactiveMediaInfo').checked = p.EnableProactiveMediaInfo || false;
 
         document.getElementById('chkEnableDispatcharrMode').checked = p.EnableDispatcharrMode || false;
@@ -281,7 +279,6 @@ var XtreamLibraryConfig = (function () {
         p.DownloadArtworkForUnmatched = document.getElementById('chkDownloadArtworkForUnmatched').checked;
         p.EnableIncrementalSync = document.getElementById('chkEnableIncrementalSync').checked;
         p.FullSyncIntervalDays = parseInt(document.getElementById('txtFullSyncIntervalDays').value) || 7;
-        p.FullSyncChangeThreshold = (parseInt(document.getElementById('txtFullSyncChangeThreshold').value) || 50) / 100;
         p.EnableProactiveMediaInfo = document.getElementById('chkEnableProactiveMediaInfo').checked;
 
         p.EnableDispatcharrMode = document.getElementById('chkEnableDispatcharrMode').checked;
