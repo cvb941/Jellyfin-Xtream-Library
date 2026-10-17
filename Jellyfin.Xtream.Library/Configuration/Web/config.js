@@ -2064,6 +2064,7 @@ var XtreamLibraryConfig = (function () {
 
     updateTunerHint: function () {
         var native = document.getElementById('chkEnableNativeTuner').checked;
+        var publishing = document.getElementById('chkPublishLiveTvPlaylists').checked;
         var hint = document.getElementById('tunerChoiceHint');
         if (hint) {
             hint.innerHTML = native
@@ -2071,6 +2072,8 @@ var XtreamLibraryConfig = (function () {
                     + 'Library (added by the plugin)</strong>. Do not add a second one by hand, and no M3U tuner '
                     + 'either, or every channel appears twice. This tuner always transcodes, and a channel can take '
                     + 'a few seconds longer to start the first time, because Jellyfin examines the stream first.'
+                    + (publishing ? ' <strong>Publish Playlists</strong> is still on, so the playlists with your '
+                        + 'password are still served; turn it off under Setup URLs if no other app uses them.' : '')
                 : 'Add an <strong>M3U Tuner</strong> (not HDHomeRun) under Dashboard &rarr; Live TV &rarr; Tuner '
                     + 'Devices with the M3U Playlist URL below. It can stream without transcoding, but the '
                     + 'playlist carries your provider password: see Setup URLs.';
