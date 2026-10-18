@@ -107,6 +107,26 @@ public sealed class XmltvPassthroughTests : IDisposable
             "the second listing repeats overlapping programmes; back-to-back episodes of the same series stay");
     }
 
+    [Fact]
+    public async Task AProgrammeWithoutAReadableStartIsNotTreatedAsADuplicate()
+    {
+        var t = DateTimeOffset.UtcNow.AddMinutes(-10);
+        _client
+            .Setup(c => c.GetAllLiveStreamsAsync(It.IsAny<ConnectionInfo>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<LiveStreamInfo> { new() { StreamId = 1, Num = 1, Name = "NPO 1", EpgChannelId = "1" } });
+        _client
+            .Setup(c => c.GetXmltvAsync(It.IsAny<ConnectionInfo>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("<tv>"
+                + $"<programme start=\"bad\" stop=\"{XmltvTime(t.AddMinutes(120))}\" channel=\"1\"><title>Nieuws</title></programme>"
+                + $"<programme start=\"{XmltvTime(t.AddMinutes(60))}\" stop=\"{XmltvTime(t.AddMinutes(70))}\" channel=\"1\"><title>Nieuws</title></programme>"
+                + "</tv>");
+
+        var xml = await _liveTvService.GetXmltvEpgAsync(CancellationToken.None);
+
+        XDocument.Parse(xml).Descendants("programme").Should().HaveCount(2,
+            "an unreadable start must not become a span from 1970 that covers the later programme");
+    }
+
     // GitHub #147. LiveTv.m3u carries the provider's tvg-id, Epg.xml its own xtream_ ids, so
     // Jellyfin's M3U tuner cannot match them by id and falls back to number, then name. Two
     // channels that clean to the same name then share one guide. The number has to be in both.

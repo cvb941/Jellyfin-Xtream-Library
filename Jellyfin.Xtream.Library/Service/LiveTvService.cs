@@ -1410,13 +1410,15 @@ public class LiveTvService : IDisposable
                 // Optional time-window filter to keep the EPG file proportional to EpgDaysToFetch.
                 var startAttr = reader.GetAttribute("start");
                 var stopAttr = reader.GetAttribute("stop");
-                if (TryParseXmltvTime(stopAttr, out var stopUnix) && stopUnix < pastGraceUnix)
+                var hasStop = TryParseXmltvTime(stopAttr, out var stopUnix);
+                if (hasStop && stopUnix < pastGraceUnix)
                 {
                     reader.Skip();
                     continue;
                 }
 
-                if (TryParseXmltvTime(startAttr, out var startUnix) && startUnix > endUnix)
+                var hasStart = TryParseXmltvTime(startAttr, out var startUnix);
+                if (hasStart && startUnix > endUnix)
                 {
                     reader.Skip();
                     continue;
@@ -1436,7 +1438,9 @@ public class LiveTvService : IDisposable
                 // A guide that merges two listings for one channel (Tivione's feed through
                 // Dispatcharr carries NPO 1 twice, 15 minutes apart) would show every programme
                 // twice, overlapping. Keep the first of two same-titled programmes that overlap.
-                if (startUnix < stopUnix
+                // Only with both times read: a missing start would otherwise count as 1970 and
+                // swallow every later programme of that title.
+                if (hasStart && hasStop && startUnix < stopUnix
                     && !kept.TryKeep(ourId, element.Element("title")?.Value, startUnix, stopUnix))
                 {
                     duplicates++;
