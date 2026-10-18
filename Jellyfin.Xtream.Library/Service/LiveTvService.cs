@@ -1370,6 +1370,8 @@ public class LiveTvService : IDisposable
     {
         var written = 0;
         var startLength = sb.Length;
+        var kept = new ProgrammeOverlapFilter();
+        var duplicates = 0;
         var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         // Keep programs that ended up to 1 hour ago to be resilient to timezone/clock skews
         var pastGraceUnix = nowUnix - 3600;
@@ -1431,6 +1433,16 @@ public class LiveTvService : IDisposable
                     continue;
                 }
 
+                // A guide that merges two listings for one channel (Tivione's feed through
+                // Dispatcharr carries NPO 1 twice, 15 minutes apart) would show every programme
+                // twice, overlapping. Keep the first of two same-titled programmes that overlap.
+                if (startUnix < stopUnix
+                    && !kept.TryKeep(ourId, element.Element("title")?.Value, startUnix, stopUnix))
+                {
+                    duplicates++;
+                    continue;
+                }
+
                 element.SetAttributeValue("channel", ourId);
                 sb.Append("  ").Append(element.ToString(SaveOptions.DisableFormatting)).Append('\n');
                 written++;
@@ -1445,6 +1457,13 @@ public class LiveTvService : IDisposable
             _logger.LogWarning(ex, "Failed to parse upstream XMLTV; falling back to JSON EPG");
             sb.Length = startLength;
             return 0;
+        }
+
+        if (duplicates > 0)
+        {
+            _logger.LogInformation(
+                "Left out {Count} upstream programmes that repeat an overlapping programme with the same title on the same channel",
+                duplicates);
         }
 
         return written;
