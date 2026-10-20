@@ -887,12 +887,12 @@ var XtreamLibraryConfig = (function () {
                 self.pollForCompletion();
             } else {
                 self.resetSyncButton();
-                statusSpan.innerHTML = '<span style="color: red;">Failed to start sync: ' + (data.Message || 'Unknown error') + '</span>';
+                statusSpan.innerHTML = '<span style="color: red;">Failed to start sync: ' + XtreamLibraryConfig.escapeHtml(data.Message || 'Unknown error') + '</span>';
             }
         }).catch(function (error) {
             self.resetSyncButton();
             console.error('Sync error:', error);
-            statusSpan.innerHTML = '<span style="color: red;">Sync failed: ' + (error.message || 'Check console for details') + '</span>';
+            statusSpan.innerHTML = '<span style="color: red;">Sync failed: ' + XtreamLibraryConfig.escapeHtml(error.message || 'Check console for details') + '</span>';
         });
     },
 
@@ -936,7 +936,7 @@ var XtreamLibraryConfig = (function () {
                             } else if (result.Error && result.Error.toLowerCase().includes('cancel')) {
                                 statusSpan.innerHTML = '<span style="color: orange;">Sync was cancelled.</span>';
                             } else {
-                                statusSpan.innerHTML = '<span style="color: red;">Sync failed: ' + (result.Error || 'Unknown error') + '</span>';
+                                statusSpan.innerHTML = '<span style="color: red;">Sync failed: ' + XtreamLibraryConfig.escapeHtml(result.Error || 'Unknown error') + '</span>';
                             }
                         }
                     });
@@ -1007,13 +1007,13 @@ var XtreamLibraryConfig = (function () {
         const statusSpan = document.getElementById('syncStatus');
         let html = '<br/><span style="color: orange;">';
         if (progress.MoviePhase || progress.SeriesPhase) {
-            if (progress.MoviePhase) html += progress.MoviePhase;
+            if (progress.MoviePhase) html += this.escapeHtml(progress.MoviePhase);
             if (progress.SeriesPhase) {
                 if (progress.MoviePhase) html += '<br/>';
-                html += progress.SeriesPhase;
+                html += this.escapeHtml(progress.SeriesPhase);
             }
         } else {
-            html += progress.Phase;
+            html += this.escapeHtml(progress.Phase);
         }
         if (progress.CurrentItem) {
             html += ': ' + this.escapeHtml(progress.CurrentItem);
@@ -1203,7 +1203,7 @@ var XtreamLibraryConfig = (function () {
             html += '<br/><br/><span style="color: orange;"><strong>Errors:</strong> ' + result.Errors + '</span>';
         }
         if (result.Error) {
-            html += '<br/><span style="color: red;"><strong>Error:</strong> ' + result.Error + '</span>';
+            html += '<br/><span style="color: red;"><strong>Error:</strong> ' + XtreamLibraryConfig.escapeHtml(result.Error) + '</span>';
         }
 
         infoDiv.innerHTML = html;
@@ -1257,11 +1257,11 @@ var XtreamLibraryConfig = (function () {
                 statusSpan.innerHTML = '<span style="color: green;">Retry completed!</span>';
                 self.loadSyncStatus();
             } else {
-                statusSpan.innerHTML = '<span style="color: red;">Retry failed: ' + (data.Error || 'Unknown error') + '</span>';
+                statusSpan.innerHTML = '<span style="color: red;">Retry failed: ' + XtreamLibraryConfig.escapeHtml(data.Error || 'Unknown error') + '</span>';
             }
         }).catch(function (error) {
             console.error('Retry error:', error);
-            statusSpan.innerHTML = '<span style="color: red;">Retry failed: ' + (error.message || 'Check console for details') + '</span>';
+            statusSpan.innerHTML = '<span style="color: red;">Retry failed: ' + XtreamLibraryConfig.escapeHtml(error.message || 'Check console for details') + '</span>';
         });
     },
 
@@ -1977,10 +1977,16 @@ var XtreamLibraryConfig = (function () {
         });
     },
 
+    // Escapes all five characters, quotes included: the result also goes into quoted attributes
+    // (data-category-name, value), and the textContent/innerHTML trick it replaced left quotes
+    // alone, so a provider's category name could close the attribute and add an event handler.
     escapeHtml: function (text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     },
 
     updateScheduleVisibility: function () {
@@ -2061,13 +2067,13 @@ var XtreamLibraryConfig = (function () {
             return response.json();
         }).then(function (data) {
             if (data.Success) {
-                statusSpan.innerHTML = '<span style="color: green;">' + data.Message + '</span>';
+                statusSpan.innerHTML = '<span style="color: green;">' + XtreamLibraryConfig.escapeHtml(data.Message) + '</span>';
             } else {
                 statusSpan.innerHTML = '<span style="color: red;">Failed to clear cache.</span>';
             }
         }).catch(function (error) {
             console.error('ClearMetadataCache error:', error);
-            statusSpan.innerHTML = '<span style="color: red;">Failed: ' + (error.message || 'Check console for details') + '</span>';
+            statusSpan.innerHTML = '<span style="color: red;">Failed: ' + XtreamLibraryConfig.escapeHtml(error.message || 'Check console for details') + '</span>';
         });
     },
 
@@ -2100,13 +2106,13 @@ var XtreamLibraryConfig = (function () {
             return response.json();
         }).then(function (data) {
             if (data.Success) {
-                statusDiv.innerHTML = '<span style="color: green;">' + data.Message + '</span>';
+                statusDiv.innerHTML = '<span style="color: green;">' + XtreamLibraryConfig.escapeHtml(data.Message) + '</span>';
             } else {
-                statusDiv.innerHTML = '<span style="color: red;">' + (data.Message || 'Failed to clean library.') + '</span>';
+                statusDiv.innerHTML = '<span style="color: red;">' + XtreamLibraryConfig.escapeHtml(data.Message || 'Failed to clean library.') + '</span>';
             }
         }).catch(function (error) {
             console.error('Clean library error:', error);
-            statusDiv.innerHTML = '<span style="color: red;">Failed: ' + (error.message || 'Check console for details') + '</span>';
+            statusDiv.innerHTML = '<span style="color: red;">Failed: ' + XtreamLibraryConfig.escapeHtml(error.message || 'Check console for details') + '</span>';
         });
     },
 
@@ -2538,11 +2544,11 @@ var XtreamLibraryConfig = (function () {
                 self.pollForCompletion();
             } else {
                 self.updateDashboardSyncButton(false);
-                if (actionSpan) actionSpan.innerHTML = '<span style="color: red;">' + (data.Message || 'Failed') + '</span>';
+                if (actionSpan) actionSpan.innerHTML = '<span style="color: red;">' + XtreamLibraryConfig.escapeHtml(data.Message || 'Failed') + '</span>';
             }
         }).catch(function (err) {
             self.updateDashboardSyncButton(false);
-            if (actionSpan) actionSpan.innerHTML = '<span style="color: red;">Failed: ' + (err.message || 'Error') + '</span>';
+            if (actionSpan) actionSpan.innerHTML = '<span style="color: red;">Failed: ' + XtreamLibraryConfig.escapeHtml(err.message || 'Error') + '</span>';
         });
     },
 
@@ -2558,12 +2564,12 @@ var XtreamLibraryConfig = (function () {
             if (data.Success) {
                 if (actionSpan) actionSpan.innerHTML = '<span style="color: green;">Retry completed!</span>';
             } else {
-                if (actionSpan) actionSpan.innerHTML = '<span style="color: red;">Retry failed: ' + (data.Error || 'Unknown') + '</span>';
+                if (actionSpan) actionSpan.innerHTML = '<span style="color: red;">Retry failed: ' + XtreamLibraryConfig.escapeHtml(data.Error || 'Unknown') + '</span>';
             }
             self.loadDashboard();
             self.loadSyncStatus();
         }).catch(function (err) {
-            if (actionSpan) actionSpan.innerHTML = '<span style="color: red;">Retry failed: ' + (err.message || 'Error') + '</span>';
+            if (actionSpan) actionSpan.innerHTML = '<span style="color: red;">Retry failed: ' + XtreamLibraryConfig.escapeHtml(err.message || 'Error') + '</span>';
         });
     },
 
@@ -2593,7 +2599,7 @@ var XtreamLibraryConfig = (function () {
             statusSpan.innerHTML = '<span style="color: green;">Downloaded!</span>';
         }).catch(function (error) {
             console.error('DownloadLog error:', error);
-            statusSpan.innerHTML = '<span style="color: red;">Failed: ' + (error.message || 'Check console') + '</span>';
+            statusSpan.innerHTML = '<span style="color: red;">Failed: ' + XtreamLibraryConfig.escapeHtml(error.message || 'Check console') + '</span>';
         });
     },
 
@@ -2610,13 +2616,13 @@ var XtreamLibraryConfig = (function () {
             return response.json();
         }).then(function (data) {
             if (data.Success) {
-                statusSpan.innerHTML = '<span style="color: green;">' + data.Message + '</span>';
+                statusSpan.innerHTML = '<span style="color: green;">' + XtreamLibraryConfig.escapeHtml(data.Message) + '</span>';
             } else {
                 statusSpan.innerHTML = '<span style="color: red;">Failed to refresh cache.</span>';
             }
         }).catch(function (error) {
             console.error('RefreshLiveTvCache error:', error);
-            statusSpan.innerHTML = '<span style="color: red;">Failed: ' + (error.message || 'Check console for details') + '</span>';
+            statusSpan.innerHTML = '<span style="color: red;">Failed: ' + XtreamLibraryConfig.escapeHtml(error.message || 'Check console for details') + '</span>';
         });
     }
     };
