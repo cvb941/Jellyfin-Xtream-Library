@@ -760,6 +760,38 @@ public class LiveTvService : IDisposable
             "Dispatcharr matched {Matched} of {Total} Live TV channels; the rest keep the credentialed URL",
             matched,
             channels.Count);
+
+        StampDispatcharrStats(listing, channels);
+    }
+
+    /// <summary>
+    /// Gives each channel that has none the stream stats Dispatcharr's proxy recorded, so the
+    /// native tuner can describe the stream itself and Jellyfin skips its probe: a fixed 3 s wait
+    /// plus the probe, and Dispatcharr tearing the channel down between probe and playback
+    /// (homelab-ops #550).
+    /// <para>
+    /// The tuner only uses them with Stream Format TS; see CreateMediaSourceInfo.
+    /// </para>
+    /// </summary>
+    /// <param name="listing">Dispatcharr's channel listing.</param>
+    /// <param name="channels">Channels to stamp, modified in place.</param>
+    internal void StampDispatcharrStats(IEnumerable<DispatcharrChannel>? listing, List<LiveStreamInfo> channels)
+    {
+        var stats = DispatcharrChannelMap.BuildStats(listing);
+        int stamped = 0;
+        foreach (var channel in channels)
+        {
+            if (channel.StreamStats?.VideoCodec == null && stats.TryGetValue(channel.StreamId, out var found))
+            {
+                channel.StreamStats = found;
+                stamped++;
+            }
+        }
+
+        _logger.LogInformation(
+            "Dispatcharr had stream stats for {Stamped} of {Total} Live TV channels",
+            stamped,
+            channels.Count);
     }
 
     private async Task<List<LiveStreamInfo>> GetFilteredChannelsForProviderAsync(
@@ -1370,6 +1402,8 @@ public class LiveTvService : IDisposable
     {
         var written = 0;
         var startLength = sb.Length;
+        var kept = new ProgrammeOverlapFilter();
+        var duplicates = 0;
         var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         // Keep programs that ended up to 1 hour ago to be resilient to timezone/clock skews
         var pastGraceUnix = nowUnix - 3600;
@@ -1408,13 +1442,15 @@ public class LiveTvService : IDisposable
                 // Optional time-window filter to keep the EPG file proportional to EpgDaysToFetch.
                 var startAttr = reader.GetAttribute("start");
                 var stopAttr = reader.GetAttribute("stop");
-                if (TryParseXmltvTime(stopAttr, out var stopUnix) && stopUnix < pastGraceUnix)
+                var hasStop = TryParseXmltvTime(stopAttr, out var stopUnix);
+                if (hasStop && stopUnix < pastGraceUnix)
                 {
                     reader.Skip();
                     continue;
                 }
 
-                if (TryParseXmltvTime(startAttr, out var startUnix) && startUnix > endUnix)
+                var hasStart = TryParseXmltvTime(startAttr, out var startUnix);
+                if (hasStart && startUnix > endUnix)
                 {
                     reader.Skip();
                     continue;
@@ -1428,6 +1464,18 @@ public class LiveTvService : IDisposable
                 catch (XmlException ex) when (reader.ReadState != ReadState.Error)
                 {
                     _logger.LogDebug(ex, "Skipping malformed <programme> in upstream XMLTV");
+                    continue;
+                }
+
+                // A guide that merges two listings for one channel (Tivione's feed through
+                // Dispatcharr carries NPO 1 twice, 15 minutes apart) would show every programme
+                // twice, overlapping. Keep the first of two same-titled programmes that overlap.
+                // Only with both times read: a missing start would otherwise count as 1970 and
+                // swallow every later programme of that title.
+                if (hasStart && hasStop && startUnix < stopUnix
+                    && !kept.TryKeep(ourId, element.Element("title")?.Value, startUnix, stopUnix))
+                {
+                    duplicates++;
                     continue;
                 }
 
@@ -1445,6 +1493,13 @@ public class LiveTvService : IDisposable
             _logger.LogWarning(ex, "Failed to parse upstream XMLTV; falling back to JSON EPG");
             sb.Length = startLength;
             return 0;
+        }
+
+        if (duplicates > 0)
+        {
+            _logger.LogInformation(
+                "Left out {Count} upstream programmes that repeat an overlapping programme with the same title on the same channel",
+                duplicates);
         }
 
         return written;
@@ -1589,7 +1644,7 @@ public class LiveTvService : IDisposable
             return string.Empty;
         }
 
-        return value
+        return XmlText.RemoveInvalidChars(value)
             .Replace("&", "&amp;", StringComparison.Ordinal)
             .Replace("<", "&lt;", StringComparison.Ordinal)
             .Replace(">", "&gt;", StringComparison.Ordinal)
