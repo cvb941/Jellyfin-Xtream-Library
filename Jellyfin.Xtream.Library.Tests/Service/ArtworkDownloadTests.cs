@@ -222,7 +222,7 @@ public class ArtworkDownloadTests : IDisposable
     {
         var handler = new Handler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
-            Content = new StreamContent(new UnboundedStream(StrmSyncService.MaxArtworkBytes + 1)),
+            Content = new StreamContent(new UnboundedStream(StrmSyncService.MaxImageBytes + 1)),
         });
 
         var ok = await DownloadAsync(handler, "http://img.test/huge.jpg", "huge.jpg");
@@ -237,7 +237,7 @@ public class ArtworkDownloadTests : IDisposable
         var handler = new Handler(_ =>
         {
             var response = Ok(new byte[] { 1 });
-            response.Content.Headers.ContentLength = StrmSyncService.MaxArtworkBytes + 1;
+            response.Content.Headers.ContentLength = StrmSyncService.MaxImageBytes + 1;
             return response;
         });
 
