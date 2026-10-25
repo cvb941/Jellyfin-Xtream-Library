@@ -4282,12 +4282,30 @@ public partial class StrmSyncService
 
         foreach (var strmFile in Directory.GetFiles(folder, "*.strm"))
         {
-            var named = StreamIdInStrmUrl(ReadStrmUrl(strmFile));
+            // A grouped guest's file is named "... - {streamId}.strm", whatever its URL looks like,
+            // so that name settles whose file it is even for a Dispatcharr URL (CodeRabbit).
+            // The folder's own plain file is never a guest, even when its title ends in " - 2049".
+            var guest = string.Equals(Path.GetFileNameWithoutExtension(strmFile), Path.GetFileName(folder), StringComparison.OrdinalIgnoreCase)
+                ? null
+                : GuestStreamIdInFileName(strmFile);
+            var named = guest ?? StreamIdInStrmUrl(ReadStrmUrl(strmFile));
             if (named is null || named == streamId)
             {
                 syncedFiles.TryAdd(strmFile, 0);
             }
         }
+    }
+
+    /// <summary>
+    /// The stream id a grouped guest's file name ends in (<c>… - 123.strm</c>), or null.
+    /// </summary>
+    /// <param name="path">The STRM file path.</param>
+    /// <returns>The stream id, or null for any other name.</returns>
+    internal static int? GuestStreamIdInFileName(string path)
+    {
+        var name = Path.GetFileNameWithoutExtension(path);
+        var dash = name.LastIndexOf(" - ", StringComparison.Ordinal);
+        return dash >= 0 && int.TryParse(name[(dash + 3)..], NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : null;
     }
 
     /// <summary>

@@ -185,6 +185,7 @@ public class UnreadCategoryKeepTests : IDisposable
         File.WriteAllText(Path.Combine(folder, "Shared (2020) [tmdbid-1].strm"), "http://h/movie/u/p/101.mkv");
         File.WriteAllText(Path.Combine(folder, "Shared (2020) [tmdbid-1] - 102.strm"), "http://h/movie/u/p/102.mkv");
         File.WriteAllText(Path.Combine(folder, "Shared (2020) [tmdbid-1] - Version 2.strm"), "http://h/proxy/vod/movie/abc?stream_id=9");
+        File.WriteAllText(Path.Combine(folder, "Shared (2020) [tmdbid-1] - 103.strm"), "http://h/proxy/vod/movie/def?stream_id=8");
         var kept = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>();
 
         StrmSyncService.ProtectOwnStrmFilesIn(folder, 101, kept);
