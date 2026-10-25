@@ -54,6 +54,7 @@ public class XtreamClientTests : IDisposable
         using var http = new HttpClient(new CapturingHttpMessageHandler(_ =>
             new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable)));
         var client = new XtreamClient(http, _mockLogger.Object) { MaxRetries = 0 };
+        client.UpdateUserAgent(null);
         var act = () => client.GetSimpleDataTableAsync(new ConnectionInfo("http://epg-failure.test", "user", "secret"), 4239, CancellationToken.None);
         await act.Should().ThrowAsync<HttpRequestException>();
     }

@@ -1,6 +1,6 @@
 name: "Xtream Library"
 guid: "63ba5fcd-c8ce-421a-83e8-ba0b11030d53"
-version: "2.0.20.2"
+version: "2.0.20.3"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 owner: "cvb941"
