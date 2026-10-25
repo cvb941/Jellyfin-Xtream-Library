@@ -100,6 +100,19 @@ jobs:
             -p:AssemblyVersion="${VERSION}" \
             -p:FileVersion="${VERSION}"
 
+      - name: Test
+        run: dotnet test -c Release --no-build
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Test configuration page
+        run: |
+          node --check Jellyfin.Xtream.Library/Configuration/Web/config.js
+          node --test "tests/js/**/*.test.js"
+
       - name: Publish
         env:
           VERSION: ${{ steps.asmver.outputs.version }}
@@ -194,7 +207,7 @@ jobs:
             echo "Release $TAG not found. Creating..."
             RELEASE_ID=$(api POST "${API}/releases" \
               -H "Content-Type: application/json" \
-              -d "{\"tag_name\":\"${TAG}\",\"name\":\"${TAG}\",\"draft\":false,\"prerelease\":false}" \
+              -d "{\"tag_name\":\"${TAG}\",\"name\":\"${TAG} — DASH beta\",\"draft\":false,\"prerelease\":true}" \
               | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))")
           fi
 
@@ -226,3 +239,19 @@ jobs:
               sys.exit(f\"::error::{name} is in state {match.get('state')}, not 'uploaded'\")
           print(f\"{name} attached, {match['size']} bytes\")
           "
+
+      - name: Update beta plugin repository
+        env:
+          VERSION: ${{ steps.asmver.outputs.version }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git switch -C main origin/main
+          python3 scripts/update-repository.py "$VERSION" "output/jellyfin-xtream-library_${VERSION}.zip"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add repository.json manifest-dev.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish Xtream Library ${VERSION} beta repository"
+            git push origin HEAD:main
+          fi

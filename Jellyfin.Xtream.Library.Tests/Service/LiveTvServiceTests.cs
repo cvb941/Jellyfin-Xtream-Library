@@ -689,6 +689,20 @@ public class LiveTvServiceTests
     }
 
     [Fact]
+    public void DashPlaylistUsesManifestsForBothLiveAndCatchup()
+    {
+        var config = MakeM3UConfig();
+        config.EnableCatchup = true;
+        config.LiveTvOutputFormat = "mpd";
+        var m3u = LiveTvService.GenerateM3U(
+            MakeArchiveChannel(string.Empty), config, false, "http://127.0.0.1:8096", new Dictionary<int, string>());
+        m3u.Should().Contain("/{duration}/{start}/1.mpd");
+        m3u.Should().Contain("/live/");
+        m3u.Should().NotContain(".ts");
+        m3u.Should().NotContain(".m3u8");
+    }
+
+    [Fact]
     public void GenerateM3U_CatchupPlaylist_StillListsTheChannelWithoutATemplate()
     {
         // The cost of this change, pinned rather than left implicit: Catchup.m3u keeps listing the

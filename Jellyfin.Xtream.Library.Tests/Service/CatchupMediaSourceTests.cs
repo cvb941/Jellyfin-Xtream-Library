@@ -13,6 +13,7 @@ using System;
 using FluentAssertions;
 using Jellyfin.Xtream.Library.Service;
 using MediaBrowser.Model.MediaInfo;
+using MediaBrowser.Model.Dto;
 using Xunit;
 
 namespace Jellyfin.Xtream.Library.Tests.Service;
@@ -54,7 +55,7 @@ public class CatchupMediaSourceTests
     {
         var source = XtreamCatchupChannel.BuildMediaSource("id", "http://host/x.ts", OneHour);
         source.Protocol.Should().Be(MediaProtocol.Http);
-        source.Container.Should().Be("mpegts");
+        source.Container.Should().Be("ts");
         source.IsRemote.Should().BeTrue();
     }
 
@@ -63,5 +64,27 @@ public class CatchupMediaSourceTests
     {
         XtreamCatchupChannel.BuildMediaSource("xcu|p|0|4711|1|2", "http://host/x.ts", OneHour)
             .Id.Should().Be("xcu|p|0|4711|1|2");
+    }
+
+    [Fact]
+    public void DashUsesTheManifestDemuxerAndKeepsTheProgrammeDuration()
+    {
+        var source = XtreamCatchupChannel.BuildMediaSource("xcu|p|0|4711|1|2", "http://host/archive.mpd", OneHour);
+        source.Container.Should().Be("dash");
+        source.IsInfiniteStream.Should().BeFalse();
+        source.RunTimeTicks.Should().Be(TimeSpan.FromHours(1).Ticks);
+        source.MediaStreams.Should().BeNullOrEmpty();
+    }
+
+    [Fact]
+    public void BrowsingKeepsAStaticPlaceholderUntilThePlaybackUrlIsResolved()
+    {
+        var start = DateTimeOffset.FromUnixTimeSeconds(OneHour.StartUnix);
+        var stop = DateTimeOffset.FromUnixTimeSeconds(OneHour.StopUnix);
+        var item = XtreamCatchupChannel.BuildItem(OneHour, start, stop, "Programme", null);
+        item.MediaSources.Should().ContainSingle().Which.Type.Should().Be(MediaSourceType.Placeholder);
+        item.MediaSources[0].Path.Should().BeNullOrEmpty();
+        item.DateModified.Should().BeAfter(DateTime.MinValue);
+        item.RunTimeTicks.Should().Be(TimeSpan.FromHours(1).Ticks);
     }
 }

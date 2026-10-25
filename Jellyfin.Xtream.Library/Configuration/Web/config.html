@@ -1001,12 +1001,10 @@
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="selLiveTvOutputFormat">Stream Format</label>
                                 <select is="emby-select" id="selLiveTvOutputFormat" name="LiveTvOutputFormat">
-                                    <option value="ts">MPEG-TS (recommended)</option>
-                                    <option value="m3u8">HLS (use if TS doesn't work with your provider)</option>
+                                    <option value="ts">MPEG-TS</option>
+                                    <option value="m3u8">HLS</option>
+                                    <option value="mpd">DASH</option>
                                 </select>
-                                <div class="fieldDescription">
-                                    Output format for live streams. MPEG-TS lets the M3U tuner stream without transcoding (the native tuner transcodes either way, see above). Use HLS only if your provider does not support TS.
-                                </div>
                             </div>
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">

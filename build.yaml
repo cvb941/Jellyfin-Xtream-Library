@@ -1,9 +1,9 @@
 name: "Xtream Library"
-guid: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-version: "1.5.0.0"
-targetAbi: "10.11.0.0"
-framework: "net9.0"
-owner: "firestaerter3"
+guid: "63ba5fcd-c8ce-421a-83e8-ba0b11030d53"
+version: "2.0.20.1"
+targetAbi: "12.0.0.0"
+framework: "net10.0"
+owner: "cvb941"
 overview: "Sync Xtream VOD and Series content to native Jellyfin libraries via STRM files"
 description: |
   Xtream Library creates STRM files from your Xtream provider's VOD and Series content,

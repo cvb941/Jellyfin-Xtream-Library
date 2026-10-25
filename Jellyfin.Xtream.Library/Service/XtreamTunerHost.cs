@@ -323,7 +323,8 @@ public class XtreamTunerHost : ITunerHost
             return (proxyUrl, false);
         }
 
-        var isHls = !string.Equals(config.LiveTvOutputFormat, "ts", StringComparison.OrdinalIgnoreCase);
+        var isHls = !string.Equals(config.LiveTvOutputFormat, "ts", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(config.LiveTvOutputFormat, "mpd", StringComparison.OrdinalIgnoreCase);
         return (BuildStreamUrl(config, providerIndex, streamId), isHls);
     }
 
@@ -353,7 +354,7 @@ public class XtreamTunerHost : ITunerHost
     private static string BuildStreamUrl(PluginConfiguration config, int providerIndex, int streamId)
     {
         var (baseUrl, username, password) = LiveTvService.ResolveLiveTvProvider(config, providerIndex);
-        var extension = string.Equals(config.LiveTvOutputFormat, "ts", StringComparison.OrdinalIgnoreCase) ? "ts" : "m3u8";
+        var extension = config.LiveTvOutputFormat.ToLowerInvariant() switch { "ts" => "ts", "mpd" => "mpd", _ => "m3u8" };
         return string.Create(CultureInfo.InvariantCulture, $"{baseUrl}/live/{username}/{password}/{streamId}.{extension}");
     }
 
@@ -367,11 +368,13 @@ public class XtreamTunerHost : ITunerHost
     internal static MediaSourceInfo CreateMediaSourceInfo(string channelId, string streamUrl, StreamStatsInfo? stats, bool isHls, PluginConfiguration config, ILogger logger)
     {
         var sourceId = "xtream_live_" + channelId;
+        var isDash = Uri.TryCreate(streamUrl, UriKind.Absolute, out var uri)
+            && uri.AbsolutePath.EndsWith(".mpd", StringComparison.OrdinalIgnoreCase);
 
         // Stats only with Stream Format TS. A source that skips the probe keeps the container named
         // here, and Dispatcharr serves MPEG-TS whatever the extension, so with HLS selected Jellyfin
         // would be told "hls" for a TS stream (homelab-ops #550). With probing it finds out itself.
-        bool hasStats = stats?.VideoCodec != null && !isHls;
+        bool hasStats = stats?.VideoCodec != null && !isHls && !isDash;
 
         var mediaSource = new MediaSourceInfo
         {
@@ -382,7 +385,7 @@ public class XtreamTunerHost : ITunerHost
             // segments only when the source container is "ts", "aac" or "hls"
             // (EncodingHelper.GetAudioBsfArguments). With "mpegts" a copied AAC track made ffmpeg
             // fail on fMP4 (homelab-ops #550).
-            Container = isHls ? "hls" : "ts",
+            Container = isDash ? "dash" : isHls ? "hls" : "ts",
             SupportsProbing = !hasStats,
 
             // GitHub #107. Jellyfin only probes a live source while opening it, and PlaybackInfo

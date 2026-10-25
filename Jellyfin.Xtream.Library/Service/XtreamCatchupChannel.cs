@@ -21,8 +21,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Xtream.Library.Client.Models;
 using MediaBrowser.Controller.Channels;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Channels;
+using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.MediaInfo;
@@ -48,6 +52,8 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
 {
     private readonly LiveTvService _liveTvService;
     private readonly CatchupEpgCache _epgCache;
+    private readonly IMediaEncoder _mediaEncoder;
+    private readonly ILibraryManager _libraryManager;
     private readonly ILogger<XtreamCatchupChannel> _logger;
 
     /// <summary>
@@ -55,14 +61,20 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
     /// </summary>
     /// <param name="liveTvService">The Live TV service, for the channel list.</param>
     /// <param name="epgCache">The catch-up EPG cache.</param>
+    /// <param name="mediaEncoder">Probes the resolved programme before playback.</param>
+    /// <param name="libraryManager">Resolves the programme's Jellyfin item ID.</param>
     /// <param name="logger">Logger.</param>
     public XtreamCatchupChannel(
         LiveTvService liveTvService,
         CatchupEpgCache epgCache,
+        IMediaEncoder mediaEncoder,
+        ILibraryManager libraryManager,
         ILogger<XtreamCatchupChannel> logger)
     {
         _liveTvService = liveTvService;
         _epgCache = epgCache;
+        _mediaEncoder = mediaEncoder;
+        _libraryManager = libraryManager;
         _logger = logger;
     }
 
@@ -84,7 +96,7 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
     /// Jellyfin uses this as a directory name for its own cache and never cleans the old ones.
     /// Day-to-day freshness is <see cref="GetCacheKey"/>'s job instead.
     /// </summary>
-    public string DataVersion => "1";
+    public string DataVersion => "2";
 
     /// <inheritdoc />
     public string HomePageUrl => string.Empty;
@@ -134,7 +146,7 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
         var config = Plugin.Instance.Configuration;
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"{DateTime.UtcNow:yyyyMMdd}-{config.CatchupDays}");
+            $"{DateTime.UtcNow:yyyyMMdd}-{config.CatchupDays}-{config.LiveTvOutputFormat}");
     }
 
     /// <inheritdoc />
@@ -210,10 +222,38 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
 
         var (baseUrl, username, password) = LiveTvService.ResolveLiveTvProvider(config, reference.ProviderIndex);
         int minutes = CatchupPlanner.DurationMinutes(reference.StartUnix, reference.StopUnix);
+        var extension = string.Equals(config.LiveTvOutputFormat, "mpd", StringComparison.OrdinalIgnoreCase) ? "mpd" : "ts";
         var url = CatchupUrlBuilder.BuildPlaybackUrl(
-            baseUrl, username, password, reference.StreamId, startUtc, minutes, clock.Offset);
+            baseUrl, username, password, reference.StreamId, startUtc, minutes, clock.Offset, extension);
 
-        return new[] { BuildMediaSource(id, url, reference) };
+        var items = _libraryManager.GetItemList(new InternalItemsQuery { ExternalId = id, Limit = 1 });
+        if (items.Count == 0)
+        {
+            throw new InvalidOperationException("The catch-up programme no longer exists in the Jellyfin library.");
+        }
+
+        var source = BuildMediaSource(items[0].Id.ToString("N", CultureInfo.InvariantCulture), url, reference);
+        var info = await _mediaEncoder.GetMediaInfo(
+            new MediaInfoRequest { MediaSource = source, MediaType = DlnaProfileType.Video }, cancellationToken).ConfigureAwait(false);
+        source.MediaStreams = info.MediaStreams;
+        if (source.Container == "dash")
+        {
+            var video = info.MediaStreams.Where(s => s.Type == MediaStreamType.Video)
+                .OrderByDescending(s => s.Width).ThenByDescending(s => s.BitRate).FirstOrDefault();
+            // Jellyfin maps by list position, not Stream.Index. Keep hidden tracks in place.
+            foreach (var stream in info.MediaStreams)
+            {
+                if ((stream.Type == MediaStreamType.Video && !ReferenceEquals(stream, video))
+                    || (stream.Type == MediaStreamType.Subtitle && stream.Codec == "ttml"))
+                {
+                    stream.Type = MediaStreamType.Data;
+                }
+            }
+        }
+
+        source.Bitrate = info.Bitrate;
+        source.SupportsProbing = false;
+        return new[] { source };
     }
 
     /// <summary>
@@ -234,7 +274,7 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
         Id = id,
         Path = url,
         Protocol = MediaProtocol.Http,
-        Container = "mpegts",
+        Container = new Uri(url).AbsolutePath.EndsWith(".mpd", StringComparison.OrdinalIgnoreCase) ? "dash" : "ts",
         IsRemote = true,
         IsInfiniteStream = false,
         RunTimeTicks = (reference.StopUnix - reference.StartUnix) * TimeSpan.TicksPerSecond,
@@ -242,9 +282,10 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
         SupportsDirectPlay = false,
         SupportsDirectStream = true,
         SupportsTranscoding = true,
+        AnalyzeDurationMs = 3000,
     };
 
-    private static ChannelItemInfo BuildItem(
+    internal static ChannelItemInfo BuildItem(
         CatchupItemRef reference,
         DateTimeOffset startUtc,
         DateTimeOffset stopUtc,
@@ -268,6 +309,9 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
         RunTimeTicks = (stopUtc - startUtc).Ticks,
         PremiereDate = startUtc.UtcDateTime,
         DateCreated = startUtc.UtcDateTime,
+        DateModified = new DateTime(2026, 10, 25, 0, 0, 0, DateTimeKind.Utc),
+        // Jellyfin reads static source [0] before requesting the dynamic playback URL.
+        MediaSources = new List<MediaSourceInfo> { new() { Type = MediaSourceType.Placeholder } },
     };
 
     private static ChannelItemResult Empty()

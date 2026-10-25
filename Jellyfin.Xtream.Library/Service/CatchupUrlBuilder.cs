@@ -41,11 +41,12 @@ public static class CatchupUrlBuilder
     /// <param name="username">Provider username.</param>
     /// <param name="password">Provider password.</param>
     /// <param name="streamId">Xtream live stream id.</param>
+    /// <param name="extension">Stream extension.</param>
     /// <returns>The template.</returns>
-    public static string BuildTemplate(string baseUrl, string username, string password, int streamId)
+    public static string BuildTemplate(string baseUrl, string username, string password, int streamId, string extension = "ts")
         => string.Create(
             CultureInfo.InvariantCulture,
-            $"{Trim(baseUrl)}/timeshift/{username}/{password}/{{duration}}/{{start}}/{streamId}.ts");
+            $"{Trim(baseUrl)}/timeshift/{username}/{password}/{{duration}}/{{start}}/{streamId}.{extension}");
 
     /// <summary>
     /// The timeshift URL for one programme, with nothing left to substitute.
@@ -57,6 +58,7 @@ public static class CatchupUrlBuilder
     /// <param name="startUtc">Programme start.</param>
     /// <param name="durationMinutes">Programme duration in whole minutes.</param>
     /// <param name="providerOffset">The provider clock's offset from UTC.</param>
+    /// <param name="extension">Stream extension.</param>
     /// <returns>A playable URL.</returns>
     public static string BuildPlaybackUrl(
         string baseUrl,
@@ -65,14 +67,15 @@ public static class CatchupUrlBuilder
         int streamId,
         DateTimeOffset startUtc,
         int durationMinutes,
-        TimeSpan providerOffset)
+        TimeSpan providerOffset,
+        string extension = "ts")
     {
         var start = startUtc.ToOffset(providerOffset).ToString(StartFormat, CultureInfo.InvariantCulture);
         var minutes = Math.Max(1, durationMinutes);
 
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"{Trim(baseUrl)}/timeshift/{username}/{password}/{minutes}/{start}/{streamId}.ts");
+            $"{Trim(baseUrl)}/timeshift/{username}/{password}/{minutes}/{start}/{streamId}.{extension}");
     }
 
     // Credentials are interpolated raw, exactly as the live stream URL and the shipped M3U

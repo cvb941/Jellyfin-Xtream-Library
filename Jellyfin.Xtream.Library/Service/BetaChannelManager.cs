@@ -24,13 +24,13 @@ public sealed partial class BetaChannelManager
     /// Match logic uses URL only, so users renaming the entry will not break
     /// the match.
     /// </summary>
-    internal const string BetaRepoName = "Xtream Library (Beta)";
+    internal const string BetaRepoName = "Xtream Library — cvb941 (Beta)";
 
     /// <summary>
     /// Manifest URL of the plugin's beta release channel.
     /// </summary>
     internal const string BetaRepoUrl =
-        "https://firestaerter3.github.io/jellyfin-plugin-repo/manifest-dev.json";
+        "https://raw.githubusercontent.com/cvb941/Jellyfin-Xtream-Library/main/manifest-dev.json";
 
     /// <summary>
     /// Computes the desired state of the plugin-repositories array given the
