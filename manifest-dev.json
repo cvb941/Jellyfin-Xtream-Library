@@ -8,6 +8,14 @@
     "category": "LiveTV",
     "versions": [
       {
+        "version": "2.0.20.3",
+        "changelog": "Beta: recover catch-up after temporary EPG errors; retain cached programmes and refresh listings with the EPG cache interval. Includes DASH live/catch-up and Jellyfin 12 playback fixes.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/cvb941/Jellyfin-Xtream-Library/releases/download/v2.0.20.3/jellyfin-xtream-library_2.0.20.3.zip",
+        "checksum": "73165bda9a043dfcf893e1b114784cd1",
+        "timestamp": "2026-10-25T11:53:22.250861+00:00"
+      },
+      {
         "version": "2.0.20.1",
         "changelog": "Beta: DASH live/catch-up, archive codec probing and highest-quality video; fix media-source IDs and empty sources before PlaybackInfo.",
         "targetAbi": "12.0.0.0",
