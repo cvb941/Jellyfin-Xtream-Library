@@ -112,8 +112,8 @@ public sealed class CatchupEpgCache
     {
         var key = CacheKey(providerIndex, streamId);
 
-        if (_programmes.TryGetValue(key, out var cached)
-            && !IsExpired(cached.FetchedUtc, DateTime.UtcNow, ttlMinutes))
+        var hasCached = _programmes.TryGetValue(key, out var cached);
+        if (hasCached && !IsExpired(cached.FetchedUtc, DateTime.UtcNow, ttlMinutes))
         {
             return cached.Programmes;
         }
@@ -131,14 +131,17 @@ public sealed class CatchupEpgCache
         }
         catch (Exception ex)
         {
-            // Information, not Debug: an empty catch-up folder with nothing in the log is the
-            // report that cannot be answered.
-            _logger.LogInformation(
+            _logger.LogWarning(
                 ex,
-                "No catch-up guide for provider {Provider} channel {StreamId}; its folders will be empty",
+                "Could not refresh catch-up guide for provider {Provider} channel {StreamId}",
                 providerIndex,
                 streamId);
-            programmes = new List<EpgProgram>();
+            if (hasCached && cached.Programmes.Count > 0)
+            {
+                return cached.Programmes;
+            }
+
+            throw;
         }
 
         Evict();

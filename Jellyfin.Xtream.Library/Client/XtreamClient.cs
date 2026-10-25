@@ -481,18 +481,10 @@ public class XtreamClient(HttpClient client, ILogger<XtreamClient> logger) : IXt
 
     public async Task<EpgListings?> GetSimpleDataTableAsync(ConnectionInfo connectionInfo, int streamId, CancellationToken cancellationToken)
     {
-        try
-        {
-            return await QueryApi<EpgListings>(
-                connectionInfo,
-                PlayerApiUrl(connectionInfo, $"action=get_simple_data_table&stream_id={streamId}"),
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            logger.LogDebug(ex, "Failed to fetch EPG data table for stream ID {StreamId}", streamId);
-            return null;
-        }
+        return await QueryApi<EpgListings>(
+            connectionInfo,
+            PlayerApiUrl(connectionInfo, $"action=get_simple_data_table&stream_id={streamId}"),
+            cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<string?> GetXmltvAsync(ConnectionInfo connectionInfo, CancellationToken cancellationToken)

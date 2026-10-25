@@ -134,7 +134,8 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
     /// <summary>
     /// Gets the key Jellyfin files its cached listings under.
     /// <para>
-    /// The day list rolls at midnight, so the key carries the date. This rather than a dated
+    /// Listings refresh with the EPG interval; Jellyfin otherwise caches even an empty day for three hours.
+    /// The day list rolls at midnight, so the key also carries the date. This rather than a dated
     /// <see cref="DataVersion"/>, which would make a fresh cache directory every day and leave
     /// every previous one behind forever.
     /// </para>
@@ -144,9 +145,10 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
     public string GetCacheKey(string? userId)
     {
         var config = Plugin.Instance.Configuration;
+        var window = DateTime.UtcNow.Ticks / TimeSpan.FromMinutes(Math.Clamp(config.EpgCacheMinutes, 1, 60)).Ticks;
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"{DateTime.UtcNow:yyyyMMdd}-{config.CatchupDays}-{config.LiveTvOutputFormat}");
+            $"{DateTime.UtcNow:yyyyMMdd}-{config.CatchupDays}-{config.LiveTvOutputFormat}-{window}");
     }
 
     /// <inheritdoc />

@@ -24,7 +24,7 @@ catalog = json.loads(path.read_text()) if path.exists() else [{
 plugin = next(p for p in catalog if p["guid"] == "63ba5fcd-c8ce-421a-83e8-ba0b11030d53")
 entry = {
     "version": version,
-    "changelog": "Beta: DASH live/catch-up, archive codec probing and highest-quality video; fix media-source IDs and empty sources before PlaybackInfo.",
+    "changelog": "Beta: recover catch-up after temporary EPG errors; retain cached programmes and refresh listings with the EPG cache interval. Includes DASH live/catch-up and Jellyfin 12 playback fixes.",
     "targetAbi": "12.0.0.0",
     "sourceUrl": f"https://github.com/cvb941/Jellyfin-Xtream-Library/releases/download/v{version}/jellyfin-xtream-library_{version}.zip",
     "checksum": hashlib.md5(Path(asset).read_bytes(), usedforsecurity=False).hexdigest(),

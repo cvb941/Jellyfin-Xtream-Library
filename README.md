@@ -6,7 +6,7 @@
 
 ## cvb941 fork — DASH beta for Jellyfin 12
 
-Add this repository in **Dashboard → Plugins → Repositories**, then install **Xtream Library 2.0.20.1** and restart Jellyfin:
+Add this repository in **Dashboard → Plugins → Repositories**, then install **Xtream Library 2.0.20.2** and restart Jellyfin:
 
 ```text
 https://raw.githubusercontent.com/cvb941/Jellyfin-Xtream-Library/main/repository.json
@@ -20,6 +20,8 @@ For Magio, set **Block Length Where There Is No Guide** to **0**: its archive se
 This fork adds DASH live and archive URLs, probes archive codecs at playback, selects the highest DASH video representation while retaining audio tracks, and fixes the media-source IDs and static placeholders Jellyfin needs before playing an archive.
 Unsupported DASH TTML subtitles are omitted because Jellyfin's FFmpeg cannot decode them for playback.
 The existing plugin ID and configuration are retained. Disable the separate **Jellyfin Xtream** plugin before using this one: both register a channel named `Xtream Catch-up`.
+
+Version 2.0.20.2 fixes empty catch-up folders after a temporary EPG error: failed requests are not cached as empty guides, successful cached programmes survive a failed refresh, and Jellyfin's listings refresh with the EPG cache interval. Updating invalidates the previously cached empty listings.
 
 This is a beta fork of [firestaerter3/Jellyfin-Xtream-Library](https://github.com/firestaerter3/Jellyfin-Xtream-Library), licensed under GPL-3.0-or-later. It requires **Jellyfin 12**, not 10.11. Jellyfin still chooses remuxing or transcoding according to the client and its codec support.
 

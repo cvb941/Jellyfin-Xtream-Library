@@ -901,6 +901,21 @@ public class XtreamTunerHostTests : IDisposable
         encoder.Verify(e => e.GetMediaInfo(It.IsAny<MediaInfoRequest>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public async Task CatchupRetriesAfterAnEpgFailureInsteadOfCachingAnEmptyDay()
+    {
+        var guide = new EpgListings { Listings = new List<EpgProgram> { new() { Title = "Programme" } } };
+        _mockClient.SetupSequence(c => c.GetSimpleDataTableAsync(It.IsAny<ConnectionInfo>(), 4239, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("503"))
+            .ReturnsAsync(guide);
+        var cache = new CatchupEpgCache(_mockClient.Object, NullLogger<CatchupEpgCache>.Instance);
+        var act = () => cache.GetProgrammesAsync(0, 4239, 30, CancellationToken.None);
+        await act.Should().ThrowAsync<HttpRequestException>();
+        (await act()).Should().ContainSingle().Which.Title.Should().Be("Programme");
+        (await act()).Should().ContainSingle();
+        _mockClient.Verify(c => c.GetSimpleDataTableAsync(It.IsAny<ConnectionInfo>(), 4239, It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
     [Theory]
     [InlineData("\"audio_codec\":\"ac3\",\"audio_channels\":2,\"audio_sample_rate\":48000,\"audio_bitrate\":448", "ac3", 2, 48000)]
     [InlineData("\"audio_codec\":\"aac\",\"audio_channels\":\"6\",\"audio_sample_rate\":44100.0", "aac", 6, 44100)]

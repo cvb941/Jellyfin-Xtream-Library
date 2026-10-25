@@ -49,6 +49,16 @@ public class XtreamClientTests : IDisposable
     #region UpdateUserAgent Tests
 
     [Fact]
+    public async Task EpgHttpFailureIsNotReportedAsAnEmptyGuide()
+    {
+        using var http = new HttpClient(new CapturingHttpMessageHandler(_ =>
+            new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable)));
+        var client = new XtreamClient(http, _mockLogger.Object) { MaxRetries = 0 };
+        var act = () => client.GetSimpleDataTableAsync(new ConnectionInfo("http://epg-failure.test", "user", "secret"), 4239, CancellationToken.None);
+        await act.Should().ThrowAsync<HttpRequestException>();
+    }
+
+    [Fact]
     public void UpdateUserAgent_NullAgent_SetsDefaultAgent()
     {
         _client.UpdateUserAgent(null);
