@@ -1,0 +1,20 @@
+[
+  {
+    "guid": "63ba5fcd-c8ce-421a-83e8-ba0b11030d53",
+    "name": "Xtream Library",
+    "description": "Xtream Library with DASH live and archive support. cvb941 beta fork for Jellyfin 12.",
+    "overview": "Xtream Live TV, catch-up and native VOD libraries",
+    "owner": "cvb941",
+    "category": "LiveTV",
+    "versions": [
+      {
+        "version": "2.0.20.1",
+        "changelog": "Beta: DASH live/catch-up, archive codec probing and highest-quality video; fix media-source IDs and empty sources before PlaybackInfo.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/cvb941/Jellyfin-Xtream-Library/releases/download/v2.0.20.1/jellyfin-xtream-library_2.0.20.1.zip",
+        "checksum": "ef68a377143595c06ff0f74901995ba3",
+        "timestamp": "2026-10-25T10:29:55.890460+00:00"
+      }
+    ]
+  }
+]
