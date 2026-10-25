@@ -15,6 +15,7 @@ https://raw.githubusercontent.com/cvb941/Jellyfin-Xtream-Library/main/repository
 In the plugin's Live TV settings, select **Stream Format → DASH** for MagioGoIPTVServer.
 Enable **Catch-up** and **Show catch-up in Jellyfin** to browse channels, days and finished programmes.
 Use the Magio Xtream API's provider URL and credentials; leave the manual time correction at zero.
+For Magio, set **Block Length Where There Is No Guide** to **0**: its archive serves whole scheduled programmes, not arbitrary time blocks.
 
 This fork adds DASH live and archive URLs, probes archive codecs at playback, selects the highest DASH video representation while retaining audio tracks, and fixes the media-source IDs and static placeholders Jellyfin needs before playing an archive.
 Unsupported DASH TTML subtitles are omitted because Jellyfin's FFmpeg cannot decode them for playback.
