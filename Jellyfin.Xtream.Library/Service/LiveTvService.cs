@@ -1536,7 +1536,7 @@ public class LiveTvService : IDisposable
             return string.Empty;
         }
 
-        return value
+        return XmlText.RemoveInvalidChars(value)
             .Replace("&", "&amp;", StringComparison.Ordinal)
             .Replace("<", "&lt;", StringComparison.Ordinal)
             .Replace(">", "&gt;", StringComparison.Ordinal)
