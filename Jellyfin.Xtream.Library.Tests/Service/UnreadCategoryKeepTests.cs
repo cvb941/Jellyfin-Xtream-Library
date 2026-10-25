@@ -166,6 +166,34 @@ public class UnreadCategoryKeepTests : IDisposable
         MovieFile("Gamma").Should().NotBeNull();
     }
 
+    [Theory]
+    [InlineData("http://h/movie/u/p/101.mkv", 101)]
+    [InlineData("http://h/movie/u/p/101.mkv?x=1", 101)]
+    [InlineData("http://h/series/u/p/7001.mp4", 7001)]
+    [InlineData("http://h/proxy/vod/movie/086aab97-3c36-41f0-a417-b97f39a69f0f?stream_id=5", null)]
+    [InlineData("", null)]
+    public void StreamIdInStrmUrl_ReadsTheIdTheUrlEndsIn(string url, int? expected)
+        => StrmSyncService.StreamIdInStrmUrl(url).Should().Be(expected);
+
+    [Fact]
+    public void ProtectOwnStrmFilesIn_LeavesAnotherStreamsFileInASharedFolder()
+    {
+        // A TMDB group's folder holds files of several streams. Keeping an unread owner must not
+        // keep a guest whose own category answered and dropped it (codex review on #178).
+        var folder = Path.Combine(_libraryPath, "Movies", "Shared (2020) [tmdbid-1]");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "Shared (2020) [tmdbid-1].strm"), "http://h/movie/u/p/101.mkv");
+        File.WriteAllText(Path.Combine(folder, "Shared (2020) [tmdbid-1] - 102.strm"), "http://h/movie/u/p/102.mkv");
+        File.WriteAllText(Path.Combine(folder, "Shared (2020) [tmdbid-1] - Version 2.strm"), "http://h/proxy/vod/movie/abc?stream_id=9");
+        var kept = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>();
+
+        StrmSyncService.ProtectOwnStrmFilesIn(folder, 101, kept);
+
+        kept.Keys.Select(Path.GetFileName).Should().BeEquivalentTo(
+            "Shared (2020) [tmdbid-1].strm",
+            "Shared (2020) [tmdbid-1] - Version 2.strm");
+    }
+
     [Fact]
     public async Task IncrementalSync_KeepsTheFilesToo()
     {

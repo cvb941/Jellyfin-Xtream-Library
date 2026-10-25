@@ -2270,7 +2270,9 @@ public partial class StrmSyncService
             unread.MovieCategoriesSince,
             (id, entry) =>
             {
-                KeepExistingMovieFiles(entry.Name, id, [entry.CategoryId], provider, moviesPath, folderMappings, existingMovieFolders, unread.PreviousSnapshot, syncedFiles);
+                // Own files only: a group's folder also holds guests from categories that did
+                // answer, and one they no longer list must still be cleaned up (codex review).
+                KeepExistingMovieFiles(entry.Name, id, [entry.CategoryId], provider, moviesPath, folderMappings, existingMovieFolders, unread.PreviousSnapshot, syncedFiles, ownFilesOnly: true);
                 unread.KeptMovies[id] = entry;
             });
         result.MoviesKeptForUnreadCategories += keptForUnread;
@@ -4080,7 +4082,8 @@ public partial class StrmSyncService
         Dictionary<int, List<string>> folderMappings,
         Dictionary<string, Dictionary<string, string>> existingMovieFolders,
         ContentSnapshot? groupingHint,
-        ConcurrentDictionary<string, byte> syncedFiles)
+        ConcurrentDictionary<string, byte> syncedFiles,
+        bool ownFilesOnly = false)
     {
         string movieName = SanitizeFileName(title, provider.CustomTitleRemoveTerms);
         int? year = ExtractYear(title);
@@ -4112,7 +4115,14 @@ public partial class StrmSyncService
             if (existingMovieFolders.TryGetValue(targetFolder, out var folderCache) &&
                 folderCache.TryGetValue(baseName, out var existingFolderName))
             {
-                ProtectStrmFilesIn(Path.Combine(movieBasePath, existingFolderName), syncedFiles);
+                if (ownFilesOnly)
+                {
+                    ProtectOwnStrmFilesIn(Path.Combine(movieBasePath, existingFolderName), streamId, syncedFiles);
+                }
+                else
+                {
+                    ProtectStrmFilesIn(Path.Combine(movieBasePath, existingFolderName), syncedFiles);
+                }
             }
 
             // A grouped guest sits in the folder its owner named, which is not keyed by its own
@@ -4253,6 +4263,50 @@ public partial class StrmSyncService
                 syncedFiles.TryAdd(strmFile, 0);
             }
         }
+    }
+
+    /// <summary>
+    /// Marks the STRM files in a folder that belong to one stream as still wanted. A file whose
+    /// address names another stream is left to answer for itself; one whose address names no
+    /// stream id at all (a Dispatcharr proxy URL) is kept, since it cannot be told apart.
+    /// </summary>
+    /// <param name="folder">Folder to look in. Missing folders are ignored.</param>
+    /// <param name="streamId">The stream whose files should survive cleanup.</param>
+    /// <param name="syncedFiles">The run's set of files that must survive cleanup.</param>
+    internal static void ProtectOwnStrmFilesIn(string folder, int streamId, ConcurrentDictionary<string, byte> syncedFiles)
+    {
+        if (!Directory.Exists(folder))
+        {
+            return;
+        }
+
+        foreach (var strmFile in Directory.GetFiles(folder, "*.strm"))
+        {
+            var named = StreamIdInStrmUrl(ReadStrmUrl(strmFile));
+            if (named is null || named == streamId)
+            {
+                syncedFiles.TryAdd(strmFile, 0);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The stream id an Xtream movie or episode URL ends in (<c>…/123.mkv</c>), or null.
+    /// </summary>
+    /// <param name="url">The URL read from a STRM file.</param>
+    /// <returns>The stream id, or null when the URL does not end in one.</returns>
+    internal static int? StreamIdInStrmUrl(string? url)
+    {
+        if (string.IsNullOrEmpty(url))
+        {
+            return null;
+        }
+
+        var path = url.Split('?', '#')[0];
+        var last = path[(path.LastIndexOf('/') + 1)..];
+        var dot = last.IndexOf('.', StringComparison.Ordinal);
+        var digits = dot > 0 ? last[..dot] : last;
+        return int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : null;
     }
 
     /// <summary>
