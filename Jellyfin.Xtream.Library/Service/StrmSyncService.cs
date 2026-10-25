@@ -2265,7 +2265,8 @@ public partial class StrmSyncService
             unread.PreviousSnapshot?.Movies,
             m => m.CategoryId,
             unread.PreviousSnapshot?.UnreadMovieCategoriesSince,
-            id => processedStreamIds.ContainsKey(id) || ContentExclusionFilter.IsExcluded(excludedVodSet, id),
+            id => processedStreamIds.ContainsKey(id),
+            id => ContentExclusionFilter.IsExcluded(excludedVodSet, id),
             unread.MovieCategoryIds,
             unread.MovieCategoriesSince,
             (id, entry) =>
@@ -2277,7 +2278,8 @@ public partial class StrmSyncService
                 // copy in each. Own files only, so other streams' copies are not affected.
                 KeepExistingMovieFiles(entry.Name, id, AllMappedCategories(folderMappings, entry.CategoryId), provider, moviesPath, folderMappings, existingMovieFolders, unread.PreviousSnapshot, syncedFiles, ownFilesOnly: true);
                 unread.KeptMovies[id] = entry;
-            });
+            },
+            (id, entry) => KeepExistingMovieFiles(entry.Name, id, [entry.CategoryId], provider, moviesPath, folderMappings, existingMovieFolders, unread.PreviousSnapshot, syncedFiles, ownFilesOnly: true));
         result.MoviesKeptForUnreadCategories += keptForUnread;
 
         // Update result with thread-safe counters
@@ -3344,7 +3346,8 @@ public partial class StrmSyncService
             unread.PreviousSnapshot?.Series,
             e => e.CategoryId,
             unread.PreviousSnapshot?.UnreadSeriesCategoriesSince,
-            id => processedSeriesIds.ContainsKey(id) || ContentExclusionFilter.IsExcluded(excludedSeriesSet, id),
+            id => processedSeriesIds.ContainsKey(id),
+            id => ContentExclusionFilter.IsExcluded(excludedSeriesSet, id),
             unread.SeriesCategoryIds,
             unread.SeriesCategoriesSince,
             (id, entry) =>
@@ -3353,7 +3356,8 @@ public partial class StrmSyncService
                 // snapshot, a copy per mapped category on disk.
                 KeepExistingSeriesFiles(entry.Name, provider, seriesPath, AllMappedCategories(folderMappings, entry.CategoryId), folderMappings, seriesFolderLookup, syncedFiles);
                 unread.KeptSeries[id] = entry;
-            });
+            },
+            (id, entry) => KeepExistingSeriesFiles(entry.Name, provider, seriesPath, [entry.CategoryId], folderMappings, seriesFolderLookup, syncedFiles));
         result.SeriesKeptForUnreadCategories += keptForUnread;
 
         // Update result with thread-safe counters
@@ -4176,10 +4180,12 @@ public partial class StrmSyncService
         Dictionary<int, TEntry>? previousItems,
         Func<TEntry, int> categoryOf,
         Dictionary<int, DateTime>? previousSince,
-        Func<int, bool> collectedOrExcluded,
+        Func<int, bool> collected,
+        Func<int, bool> excluded,
         ConcurrentDictionary<int, byte> unreadIds,
         ConcurrentDictionary<int, DateTime> sinceToSave,
-        Action<int, TEntry> keep)
+        Action<int, TEntry> keep,
+        Action<int, TEntry> keepCopyInCategory)
     {
         previousItems ??= new Dictionary<int, TEntry>();
         var previousCategoryIds = previousItems.Values.Select(categoryOf).ToHashSet();
@@ -4206,14 +4212,20 @@ public partial class StrmSyncService
             // would never be reached.
             var since = previousSince != null && previousSince.TryGetValue(categoryId, out var recorded) ? recorded : now;
 
-            var items = previousItems
-                .Where(p => categoryOf(p.Value) == categoryId && !collectedOrExcluded(p.Key))
+            var underCategory = previousItems
+                .Where(p => categoryOf(p.Value) == categoryId && !excluded(p.Key))
                 .ToList();
+            var items = underCategory.Where(p => !collected(p.Key)).ToList();
+
+            // Listed under another category this run, so written there, but its copy in this
+            // category's folder (Multiple folder mode) was only wanted through this category.
+            // Keep that copy too; the item itself is already in the new snapshot (codex review).
+            var listedElsewhere = underCategory.Where(p => collected(p.Key)).ToList();
 
             // A failed category with nothing recorded under it has nothing to keep, and the fetch
             // already logged its own warning. Starting a clock for it would only produce a
             // misleading "no longer kept" warning a week later.
-            if (items.Count == 0)
+            if (items.Count == 0 && listedElsewhere.Count == 0)
             {
                 continue;
             }
@@ -4237,6 +4249,11 @@ public partial class StrmSyncService
             foreach (var (itemId, entry) in items)
             {
                 keep(itemId, entry);
+            }
+
+            foreach (var (itemId, entry) in listedElsewhere)
+            {
+                keepCopyInCategory(itemId, entry);
             }
 
             kept += items.Count;
