@@ -369,8 +369,32 @@ public class LiveTvService : IDisposable
             result = FilterExcludedChannels(result, config.ExcludedLiveStreamIds);
         }
 
+        // The snapshot keeps the Dispatcharr uuid each channel had when it was written. With
+        // Dispatcharr Mode switched off since, that uuid must not decide the stream URL or the
+        // catch-up attribute: it kept proxy URLs in the playlist until the snapshot file was
+        // deleted by hand (BUG-038).
+        foreach (var channel in result)
+        {
+            if (!string.IsNullOrEmpty(channel.DispatcharrUuid)
+                && !UsesDispatcharrUrls(config.Providers.ElementAtOrDefault(channel.ProviderIndex)))
+            {
+                channel.DispatcharrUuid = string.Empty;
+            }
+        }
+
         return result;
     }
+
+    /// <summary>
+    /// Whether a provider's Live TV channels may use Dispatcharr's own URLs: the same test the
+    /// uuid lookup uses before it asks Dispatcharr anything (BUG-038).
+    /// </summary>
+    /// <param name="provider">The provider, or null.</param>
+    /// <returns>True when Dispatcharr Mode is on and set up.</returns>
+    internal static bool UsesDispatcharrUrls(ProviderConfig? provider)
+        => provider is not null
+            && provider.EnableDispatcharrMode
+            && !string.IsNullOrEmpty(provider.DispatcharrApiUser);
 
     /// <summary>
     /// Decides whether a completed fetch may write its snapshot. The fetch happens outside the
@@ -734,11 +758,16 @@ public class LiveTvService : IDisposable
         CancellationToken cancellationToken)
     {
         // Same guard the sync path uses: the flag alone is not enough, a blank API user means
-        // Dispatcharr was never actually set up and every call would just fail.
-        if (!provider.EnableDispatcharrMode
-            || string.IsNullOrEmpty(provider.DispatcharrApiUser)
-            || channels.Count == 0)
+        // Dispatcharr was never actually set up and every call would just fail. The channel
+        // objects can come from a cache filled while it was on, so clear what they carry: a uuid
+        // left behind kept proxy URLs after the mode was switched off (BUG-038).
+        if (!UsesDispatcharrUrls(provider) || channels.Count == 0)
         {
+            foreach (var channel in channels)
+            {
+                channel.DispatcharrUuid = string.Empty;
+            }
+
             return;
         }
 
@@ -755,6 +784,8 @@ public class LiveTvService : IDisposable
             return;
         }
 
+        // Only this answer's uuids count: a channel Dispatcharr no longer lists loses its old one.
+        // An empty answer above changes nothing, so a passing Dispatcharr hiccup keeps the URLs.
         int matched = 0;
         foreach (var channel in channels)
         {
@@ -762,6 +793,10 @@ public class LiveTvService : IDisposable
             {
                 channel.DispatcharrUuid = uuid;
                 matched++;
+            }
+            else
+            {
+                channel.DispatcharrUuid = string.Empty;
             }
         }
 
@@ -1201,7 +1236,10 @@ public class LiveTvService : IDisposable
     internal static string ResolveDispatcharrBaseUrl(PluginConfiguration config, int providerIndex = 0)
     {
         var p = config.Providers.ElementAtOrDefault(providerIndex) ?? config.Providers.FirstOrDefault();
-        return p?.EffectiveDispatcharrBaseUrl ?? string.Empty;
+
+        // Empty with Dispatcharr Mode off, so a uuid still cached somewhere falls back to the
+        // Xtream URL instead of {xtream}/proxy/ts/stream/{uuid} (BUG-038).
+        return UsesDispatcharrUrls(p) ? p!.EffectiveDispatcharrBaseUrl : string.Empty;
     }
 
     private static string BuildCatchupUrl(PluginConfiguration config, LiveStreamInfo channel)
