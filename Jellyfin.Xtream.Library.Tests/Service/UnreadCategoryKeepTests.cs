@@ -45,6 +45,7 @@ public class UnreadCategoryKeepTests : IDisposable
     private readonly string _libraryPath;
     private readonly Mock<IXtreamClient> _client = new();
     private int _run;
+    private bool _listFlakyVodCategory = true;
 
     public UnreadCategoryKeepTests()
     {
@@ -52,11 +53,13 @@ public class UnreadCategoryKeepTests : IDisposable
         Directory.CreateDirectory(_libraryPath);
 
         _client.Setup(c => c.GetVodCategoryAsync(It.IsAny<ConnectionInfo>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new List<Category>
-            {
-                new() { CategoryId = 1, CategoryName = "Flaky" },
-                new() { CategoryId = 2, CategoryName = "Steady" },
-            });
+            .ReturnsAsync(() => _listFlakyVodCategory
+                ? new List<Category>
+                {
+                    new() { CategoryId = 1, CategoryName = "Flaky" },
+                    new() { CategoryId = 2, CategoryName = "Steady" },
+                }
+                : new List<Category> { new() { CategoryId = 2, CategoryName = "Steady" } });
         _client.Setup(c => c.GetSeriesCategoryAsync(It.IsAny<ConnectionInfo>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new List<Category>
             {
@@ -124,6 +127,43 @@ public class UnreadCategoryKeepTests : IDisposable
         ((JObject)snapshot["Movies"]!).Properties().Select(p => p.Name).Should().Contain(["101", "102"], "the next run has to see that the category had items");
         (snapshot["UnreadMovieCategoriesSince"]?["1"]).Should().NotBeNull();
         (JObject.FromObject(result)["MoviesKeptForUnreadCategories"]?.Value<int>()).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task WithIncrementalSyncAndGroupingOff_TheFilesAreStillKept()
+    {
+        // The snapshot used to be loaded and saved only for those two options, so with both off
+        // nothing knew the category had items (codex review on #178).
+        await RunMoviesAsync(Answer.Items, steadyKeepsDelta: true, incremental: false).ConfigureAwait(true);
+        await RunMoviesAsync(Answer.Empty, steadyKeepsDelta: false, incremental: false).ConfigureAwait(true);
+
+        MovieFile("Alpha").Should().NotBeNull();
+        MovieFile("Beta").Should().NotBeNull();
+        MovieFile("Delta").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ACategoryLeftOutOfTheProvidersCategoryList_IsKeptToo()
+    {
+        await RunMoviesAsync(Answer.Items, steadyKeepsDelta: true).ConfigureAwait(true);
+
+        _listFlakyVodCategory = false;
+        await RunMoviesAsync(Answer.Items, steadyKeepsDelta: false).ConfigureAwait(true);
+
+        MovieFile("Alpha").Should().NotBeNull("the category is still selected, the provider just did not list it this time");
+        MovieFile("Beta").Should().NotBeNull();
+        MovieFile("Delta").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ACategoryTheUserDeselected_IsCleanedUpAsBefore()
+    {
+        await RunMoviesAsync(Answer.Items, steadyKeepsDelta: true).ConfigureAwait(true);
+
+        await RunMoviesAsync(Answer.Items, steadyKeepsDelta: true, selectedVod: [2]).ConfigureAwait(true);
+
+        MovieFile("Alpha").Should().BeNull("a deselected category is out of scope, not unread");
+        MovieFile("Gamma").Should().NotBeNull();
     }
 
     [Fact]
@@ -248,7 +288,7 @@ public class UnreadCategoryKeepTests : IDisposable
         File.WriteAllText(path, snapshot.ToString());
     }
 
-    private Task<SyncResult> RunMoviesAsync(Answer flaky, bool steadyKeepsDelta, bool flakyKeepsBeta = true, bool forceFullSync = true)
+    private Task<SyncResult> RunMoviesAsync(Answer flaky, bool steadyKeepsDelta, bool flakyKeepsBeta = true, bool forceFullSync = true, bool incremental = true, int[]? selectedVod = null)
     {
         var flakySetup = _client.Setup(c => c.GetVodStreamsByCategoryAsync(It.IsAny<ConnectionInfo>(), 1, It.IsAny<CancellationToken>()));
         switch (flaky)
@@ -279,7 +319,7 @@ public class UnreadCategoryKeepTests : IDisposable
         _client.Setup(c => c.GetVodStreamsByCategoryAsync(It.IsAny<ConnectionInfo>(), 2, It.IsAny<CancellationToken>()))
             .ReturnsAsync(steady);
 
-        return RunSyncAsync(syncMovies: true, syncSeries: false, forceFullSync);
+        return RunSyncAsync(syncMovies: true, syncSeries: false, forceFullSync, incremental, selectedVod);
     }
 
     private Task<SyncResult> RunSeriesAsync(Answer flaky, bool steadyKeepsShowC)
@@ -317,7 +357,7 @@ public class UnreadCategoryKeepTests : IDisposable
     private static Series Show(int id, string name, int categoryId)
         => new() { SeriesId = id, Name = name, CategoryId = categoryId };
 
-    private async Task<SyncResult> RunSyncAsync(bool syncMovies, bool syncSeries, bool forceFullSync)
+    private async Task<SyncResult> RunSyncAsync(bool syncMovies, bool syncSeries, bool forceFullSync, bool incremental = true, int[]? selectedVod = null)
     {
         if (forceFullSync)
         {
@@ -349,7 +389,8 @@ public class UnreadCategoryKeepTests : IDisposable
 
                 // Incremental sync on, so the snapshot is loaded and saved; a changed exclusion
                 // list each run changes the config fingerprint and makes every run a full sync.
-                EnableIncrementalSync = true,
+                EnableIncrementalSync = incremental,
+                SelectedVodCategoryIds = selectedVod ?? Array.Empty<int>(),
                 FullSyncIntervalDays = 7,
                 ExcludedVodStreamIds = new[] { 1000 + _run },
                 ExcludedSeriesIds = new[] { 1000 + _run },

@@ -595,10 +595,18 @@ public partial class StrmSyncService
         ContentSnapshot? hintSnapshot = null;
         bool isIncrementalSync = false;
 
-        if (provider.EnableIncrementalSync || provider.GroupMoviesByTmdbId)
+        // Also loaded when only orphan cleanup is on: it is how a category the provider did not
+        // list this run keeps its items (GitHub #171). That use alone changes nothing else here.
+        ContentSnapshot? categorySnapshot = null;
+        if (UsesSnapshot(provider))
         {
             CurrentProgress.Phase = "Loading snapshot";
             var loadedSnapshot = await _snapshotService.LoadLatestSnapshotAsync(providerKey, cancellationToken).ConfigureAwait(false);
+            categorySnapshot = loadedSnapshot;
+            if (!provider.EnableIncrementalSync && !provider.GroupMoviesByTmdbId)
+            {
+                loadedSnapshot = null;
+            }
 
             // Keep raw snapshot as hint for smart-skip optimization (even during full sync). It is
             // also the grouping map, which is why it is loaded even with incremental sync off: a
@@ -688,7 +696,7 @@ public partial class StrmSyncService
 
         // Categories the provider did not answer for this run, and what was kept because of them
         // (GitHub #171).
-        var unread = new UnreadCategories();
+        var unread = new UnreadCategories { PreviousSnapshot = categorySnapshot };
 
         // Sync Movies and Series - run concurrently when parallelism > 1,
         // sequentially when parallelism <= 1 to respect strict rate limits
@@ -1001,10 +1009,10 @@ public partial class StrmSyncService
         // Save snapshot for next incremental sync. Grouping needs it too: the snapshot is what
         // records which folder each stream went to and whether the provider confirmed its id, and
         // the regroup action has nothing to work from without it (GitHub #88).
-        if ((provider.EnableIncrementalSync || provider.GroupMoviesByTmdbId) && !cancellationToken.IsCancellationRequested)
+        if (UsesSnapshot(provider) && !cancellationToken.IsCancellationRequested)
         {
             CurrentProgress.Phase = "Saving snapshot";
-            await SaveSnapshotAsync(provider, providerKey, allCollectedMovies, allCollectedSeries, allSeriesInfoDict, movieIdentities, seriesIdentities, hintSnapshot, unread, result.FailedItems, cancellationToken).ConfigureAwait(false);
+            await SaveSnapshotAsync(provider, providerKey, allCollectedMovies, allCollectedSeries, allSeriesInfoDict, movieIdentities, seriesIdentities, hintSnapshot ?? categorySnapshot, unread, result.FailedItems, cancellationToken).ConfigureAwait(false);
         }
 
         result.WasIncrementalSync = isIncrementalSync;
@@ -2253,15 +2261,16 @@ public partial class StrmSyncService
             categories,
             categoryItemCounts,
             failedCategoryIds,
-            groupingHint?.Movies,
+            selection.ShouldSync,
+            unread.PreviousSnapshot?.Movies,
             m => m.CategoryId,
-            groupingHint?.UnreadMovieCategoriesSince,
+            unread.PreviousSnapshot?.UnreadMovieCategoriesSince,
             id => processedStreamIds.ContainsKey(id) || ContentExclusionFilter.IsExcluded(excludedVodSet, id),
             unread.MovieCategoryIds,
             unread.MovieCategoriesSince,
             (id, entry) =>
             {
-                KeepExistingMovieFiles(entry.Name, id, [entry.CategoryId], provider, moviesPath, folderMappings, existingMovieFolders, groupingHint, syncedFiles);
+                KeepExistingMovieFiles(entry.Name, id, [entry.CategoryId], provider, moviesPath, folderMappings, existingMovieFolders, unread.PreviousSnapshot, syncedFiles);
                 unread.KeptMovies[id] = entry;
             });
         result.MoviesKeptForUnreadCategories += keptForUnread;
@@ -3326,9 +3335,10 @@ public partial class StrmSyncService
             categories,
             categoryItemCounts,
             failedCategoryIds,
-            hintSnapshot?.Series,
+            selection.ShouldSync,
+            unread.PreviousSnapshot?.Series,
             e => e.CategoryId,
-            hintSnapshot?.UnreadSeriesCategoriesSince,
+            unread.PreviousSnapshot?.UnreadSeriesCategoriesSince,
             id => processedSeriesIds.ContainsKey(id) || ContentExclusionFilter.IsExcluded(excludedSeriesSet, id),
             unread.SeriesCategoryIds,
             unread.SeriesCategoriesSince,
@@ -4120,6 +4130,14 @@ public partial class StrmSyncService
     }
 
     /// <summary>
+    /// Whether this provider's sync loads and saves a snapshot: for incremental sync, for TMDB
+    /// grouping, or for keeping the items of a category the provider did not list (GitHub #171),
+    /// which only matters while orphan cleanup is on.
+    /// </summary>
+    private static bool UsesSnapshot(ProviderConfig provider)
+        => provider.EnableIncrementalSync || provider.GroupMoviesByTmdbId || provider.CleanupOrphans;
+
+    /// <summary>
     /// Decides which categories are unread this run, and for those still within the limit keeps
     /// the files and snapshot entries of the items the previous snapshot recorded under them
     /// (GitHub #171). Shared by movies and series; the callbacks do the type-specific part.
@@ -4132,6 +4150,7 @@ public partial class StrmSyncService
         List<Category> fetchedCategories,
         ConcurrentDictionary<int, int> categoryItemCounts,
         ConcurrentDictionary<int, byte> failedCategoryIds,
+        Func<int, bool> inScope,
         Dictionary<int, TEntry>? previousItems,
         Func<TEntry, int> categoryOf,
         Dictionary<int, DateTime>? previousSince,
@@ -4142,7 +4161,13 @@ public partial class StrmSyncService
     {
         previousItems ??= new Dictionary<int, TEntry>();
         var previousCategoryIds = previousItems.Values.Select(categoryOf).ToHashSet();
-        var unread = UnreadCategories.Find(categoryItemCounts, failedCategoryIds.Keys, previousCategoryIds);
+
+        // A category still selected that the provider's category list left out this run is not
+        // read either. One the user deselected is out of scope and cleaned up as before; 0 is
+        // where items without a category are recorded, not a category.
+        var listedIds = fetchedCategories.Select(c => c.CategoryId).ToHashSet();
+        var unlisted = previousCategoryIds.Where(id => id != 0 && inScope(id) && !listedIds.Contains(id));
+        var unread = UnreadCategories.Find(categoryItemCounts, failedCategoryIds.Keys.Concat(unlisted), previousCategoryIds);
         if (unread.Count == 0)
         {
             return 0;

@@ -31,6 +31,12 @@ internal sealed class UnreadCategories
     public ConcurrentDictionary<int, byte> MovieCategoryIds { get; } = new();
 
     /// <summary>
+    /// Gets the snapshot of the previous run, loaded whenever orphan cleanup is on, so the items
+    /// recorded under a category can be kept even with incremental sync and grouping off.
+    /// </summary>
+    public ContentSnapshot? PreviousSnapshot { get; init; }
+
+    /// <summary>
     /// Gets every series category that was unread this run. See <see cref="MovieCategoryIds"/>.
     /// </summary>
     public ConcurrentDictionary<int, byte> SeriesCategoryIds { get; } = new();
