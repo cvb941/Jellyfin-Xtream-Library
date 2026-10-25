@@ -2272,7 +2272,10 @@ public partial class StrmSyncService
             {
                 // Own files only: a group's folder also holds guests from categories that did
                 // answer, and one they no longer list must still be cleaned up (codex review).
-                KeepExistingMovieFiles(entry.Name, id, [entry.CategoryId], provider, moviesPath, folderMappings, existingMovieFolders, unread.PreviousSnapshot, syncedFiles, ownFilesOnly: true);
+                // Every mapped folder, not only the recorded category's: the snapshot keeps one
+                // category per movie, and in Multiple folder mode a movie listed in several has a
+                // copy in each. Own files only, so other streams' copies are not affected.
+                KeepExistingMovieFiles(entry.Name, id, AllMappedCategories(folderMappings, entry.CategoryId), provider, moviesPath, folderMappings, existingMovieFolders, unread.PreviousSnapshot, syncedFiles, ownFilesOnly: true);
                 unread.KeptMovies[id] = entry;
             });
         result.MoviesKeptForUnreadCategories += keptForUnread;
@@ -3346,7 +3349,9 @@ public partial class StrmSyncService
             unread.SeriesCategoriesSince,
             (id, entry) =>
             {
-                KeepExistingSeriesFiles(entry.Name, provider, seriesPath, [entry.CategoryId], folderMappings, seriesFolderLookup, syncedFiles);
+                // Every mapped folder, for the same reason as movies: one category per series in the
+                // snapshot, a copy per mapped category on disk.
+                KeepExistingSeriesFiles(entry.Name, provider, seriesPath, AllMappedCategories(folderMappings, entry.CategoryId), folderMappings, seriesFolderLookup, syncedFiles);
                 unread.KeptSeries[id] = entry;
             });
         result.SeriesKeptForUnreadCategories += keptForUnread;
@@ -4138,6 +4143,13 @@ public partial class StrmSyncService
             }
         }
     }
+
+    /// <summary>
+    /// The categories whose folders an unread item may have copies in: every mapped one in
+    /// Multiple folder mode, else just its own.
+    /// </summary>
+    private static IEnumerable<int> AllMappedCategories(Dictionary<int, List<string>> folderMappings, int categoryId)
+        => folderMappings.Count > 0 ? folderMappings.Keys.Append(categoryId) : [categoryId];
 
     /// <summary>
     /// Whether this provider's sync loads and saves a snapshot: for incremental sync, for TMDB
