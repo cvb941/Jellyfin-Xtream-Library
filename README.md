@@ -167,6 +167,8 @@ For automatic TMDb/TVDb ID lookup:
 
 Once enabled, go to **Dashboard → Live TV** in Jellyfin — the Xtream Library tuner and guide data will appear automatically. Channels are grouped by their Xtream category in the guide. To trim a large channel list down, set the Live channel mode to **Custom** and select only the categories you want — by default every channel the provider exposes is included.
 
+For providers that serve DASH manifests, select **Stream Format → DASH**. This uses `.mpd` URLs for live TV and catch-up; MPEG-TS remains the default. Catch-up playback probes the manifest, selects the highest-resolution video representation, and keeps all audio tracks. TTML subtitle tracks are hidden because Jellyfin's FFmpeg cannot decode them. This requires the provider to support DASH URLs; selecting DASH does not convert a TS or HLS source.
+
 ### First Sync
 
 1. Click **Run Sync Now**

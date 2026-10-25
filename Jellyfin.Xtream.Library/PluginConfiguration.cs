@@ -189,7 +189,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public int EpgDaysToFetch { get; set; } = 2;
 
     /// <summary>
-    /// Gets or sets the Live TV output format (m3u8 or ts).
+    /// Gets or sets the stream format (m3u8, ts or mpd).
     /// </summary>
     public string LiveTvOutputFormat { get; set; } = "ts";
 

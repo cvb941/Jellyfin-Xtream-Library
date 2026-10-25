@@ -74,6 +74,16 @@ public class CatchupUrlBuilderTests
                 "http://host:8080", "user", "pass", 1, Utc("2026-07-14T20:00:00Z"), 0, TimeSpan.Zero)
             .Should().Contain("/1/2026-07-14:20-00/");
     }
+
+    [Fact]
+    public void DashUsesTheSameWindowInTheTemplateAndPlaybackUrl()
+    {
+        CatchupUrlBuilder.BuildTemplate("http://host", "user", "pass", 4099, "mpd")
+            .Should().Be("http://host/timeshift/user/pass/{duration}/{start}/4099.mpd");
+        CatchupUrlBuilder.BuildPlaybackUrl(
+                "http://host", "user", "pass", 4099, Utc("2026-10-24T05:20:00Z"), 40, TimeSpan.Zero, "mpd")
+            .Should().Be("http://host/timeshift/user/pass/40/2026-10-24:05-20/4099.mpd");
+    }
 }
 
 public class CatchupClockTests

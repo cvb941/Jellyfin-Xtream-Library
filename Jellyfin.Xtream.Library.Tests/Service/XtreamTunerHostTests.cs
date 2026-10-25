@@ -24,7 +24,11 @@ using Jellyfin.Xtream.Library.Service;
 using Jellyfin.Xtream.Library.Tests.Helpers;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -841,6 +845,65 @@ public class XtreamTunerHostTests : IDisposable
         // EncodingHelper adds -bsf:a aac_adtstoasc only for a source container of ts, aac or hls.
         XtreamTunerHost.CreateMediaSourceInfo("xtream_1", "http://x/1.ts", Stats("\"audio_codec\":\"aac\""), false, new PluginConfiguration(), NullLogger.Instance)
             .Container.Should().Be("ts");
+    }
+
+    [Fact]
+    public void DashIsProbedAsAManifestEvenWhenTransportStreamStatsExist()
+    {
+        var source = XtreamTunerHost.CreateMediaSourceInfo(
+            "xtream_4099", "http://host/live/user/pass/4099.mpd", Stats("\"audio_codec\":\"aac\""),
+            false, new PluginConfiguration { LiveTvOutputFormat = "mpd" }, NullLogger.Instance);
+        source.Container.Should().Be("dash");
+        source.SupportsProbing.Should().BeTrue();
+        source.MediaStreams.Should().BeEmpty();
+        source.RequiresOpening.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("mpd", "dash", 1, 3)]
+    [InlineData("ts", "ts", 4, 0)]
+    [InlineData("m3u8", "ts", 4, 0)]
+    public async Task CatchupProbesAtPlaybackAndSelectsOnlyDashRepresentations(
+        string format, string container, int videoCount, int videoIndex)
+    {
+        Plugin.Instance.Configuration.LiveTvOutputFormat = format;
+        _mockClient.Setup(c => c.GetUserAndServerInfoAsync(It.IsAny<ConnectionInfo>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PlayerApi());
+        var encoder = new Mock<IMediaEncoder>();
+        encoder.Setup(e => e.GetMediaInfo(It.IsAny<MediaInfoRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MediaInfo
+            {
+                MediaStreams = new List<MediaStream>
+                {
+                    new() { Type = MediaStreamType.Video, Codec = "hevc", Index = 0, Width = 480, Height = 270 },
+                    new() { Type = MediaStreamType.Video, Codec = "hevc", Index = 1, Width = 960, Height = 540 },
+                    new() { Type = MediaStreamType.Video, Codec = "hevc", Index = 2, Width = 1280, Height = 720 },
+                    new() { Type = MediaStreamType.Video, Codec = "hevc", Index = 3, Width = 1920, Height = 1080 },
+                    new() { Type = MediaStreamType.Audio, Codec = "aac", Index = 4 },
+                    new() { Type = MediaStreamType.Audio, Codec = "aac", Index = 5 },
+                    new() { Type = MediaStreamType.Subtitle, Codec = "ttml", Index = 7, IsDefault = true },
+                },
+            });
+        var itemId = Guid.NewGuid();
+        var library = new Mock<ILibraryManager>();
+        library.Setup(l => l.GetItemList(It.Is<InternalItemsQuery>(q => q.ExternalId == "xcu|p|0|4099|1700000000|1700003600")))
+            .Returns(new List<BaseItem> { new Video { Id = itemId } });
+        var catchup = new XtreamCatchupChannel(
+            _liveTvService, new CatchupEpgCache(_mockClient.Object, NullLogger<CatchupEpgCache>.Instance),
+            encoder.Object, library.Object, NullLogger<XtreamCatchupChannel>.Instance);
+        var source = (await catchup.GetChannelItemMediaInfo("xcu|p|0|4099|1700000000|1700003600", CancellationToken.None)).Single();
+        source.Path.Should().EndWith(format == "mpd" ? "/4099.mpd" : "/4099.ts");
+        source.Container.Should().Be(container);
+        source.Id.Should().Be(itemId.ToString("N"));
+        source.VideoStream.Index.Should().Be(videoIndex);
+        source.MediaStreams.Count(s => s.Type == MediaStreamType.Video).Should().Be(videoCount);
+        source.MediaStreams.Count(s => s.Type == MediaStreamType.Audio).Should().Be(2);
+        source.MediaStreams.Count(s => s.Type == MediaStreamType.Subtitle && s.Codec == "ttml").Should().Be(format == "mpd" ? 0 : 1);
+        EncodingHelper.FindIndex(source.MediaStreams, source.VideoStream).Should().Be(videoIndex);
+        EncodingHelper.FindIndex(source.MediaStreams, source.MediaStreams.Single(s => s.Index == 4)).Should().Be(4);
+        source.RunTimeTicks.Should().Be(TimeSpan.FromHours(1).Ticks);
+        source.SupportsProbing.Should().BeFalse();
+        encoder.Verify(e => e.GetMediaInfo(It.IsAny<MediaInfoRequest>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Theory]

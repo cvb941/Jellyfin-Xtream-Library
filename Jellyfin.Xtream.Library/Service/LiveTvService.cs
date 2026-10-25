@@ -1188,7 +1188,7 @@ public class LiveTvService : IDisposable
         }
 
         var (baseUrl, username, password) = ResolveLiveTvProvider(config, channel.ProviderIndex);
-        var extension = string.Equals(config.LiveTvOutputFormat, "ts", StringComparison.OrdinalIgnoreCase) ? "ts" : "m3u8";
+        var extension = config.LiveTvOutputFormat.ToLowerInvariant() switch { "ts" => "ts", "mpd" => "mpd", _ => "m3u8" };
         return string.Create(CultureInfo.InvariantCulture, $"{baseUrl}/live/{username}/{password}/{channel.StreamId}.{extension}");
     }
 
@@ -1210,7 +1210,8 @@ public class LiveTvService : IDisposable
         // seconds as the comment here used to say. Shares one definition with the URL the plugin
         // plays itself, so the two cannot drift apart against the same provider (GitHub #108).
         var (baseUrl, username, password) = ResolveLiveTvProvider(config, channel.ProviderIndex);
-        return CatchupUrlBuilder.BuildTemplate(baseUrl, username, password, channel.StreamId);
+        var extension = string.Equals(config.LiveTvOutputFormat, "mpd", StringComparison.OrdinalIgnoreCase) ? "mpd" : "ts";
+        return CatchupUrlBuilder.BuildTemplate(baseUrl, username, password, channel.StreamId, extension);
     }
 
     // Resolves credentials for the Live TV provider. Reads Providers[0] when populated
