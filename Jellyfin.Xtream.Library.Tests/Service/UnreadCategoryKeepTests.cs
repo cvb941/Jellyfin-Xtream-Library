@@ -195,6 +195,33 @@ public class UnreadCategoryKeepTests : IDisposable
             "Shared (2020) [tmdbid-1] - Version 2.strm");
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task MultipleFolderMode_KeepsTheCopyInEveryMappedFolder(bool stillListedInSteady)
+    {
+        // Alpha is listed in both categories, so it has a copy in each folder; the snapshot keeps
+        // only its own category (1). Category 1 then comes back empty. Whether or not category 2
+        // still lists it, the copy in FolderA must stay (codex review on #178).
+        const string Folders = "FolderA=1\nFolderB=2";
+        _client.Setup(c => c.GetVodStreamsByCategoryAsync(It.IsAny<ConnectionInfo>(), 1, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<StreamInfo> { Movie(101, "Alpha (2020)", 1) });
+        _client.Setup(c => c.GetVodStreamsByCategoryAsync(It.IsAny<ConnectionInfo>(), 2, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<StreamInfo> { Movie(101, "Alpha (2020)", 1), Movie(201, "Gamma (2019)", 2) });
+        await RunSyncAsync(syncMovies: true, syncSeries: false, forceFullSync: true, movieFolders: Folders).ConfigureAwait(true);
+        MovieFiles("Alpha").Should().Equal("FolderA", "FolderB");
+
+        _client.Setup(c => c.GetVodStreamsByCategoryAsync(It.IsAny<ConnectionInfo>(), 1, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<StreamInfo>());
+        _client.Setup(c => c.GetVodStreamsByCategoryAsync(It.IsAny<ConnectionInfo>(), 2, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(stillListedInSteady
+                ? new List<StreamInfo> { Movie(101, "Alpha (2020)", 1), Movie(201, "Gamma (2019)", 2) }
+                : new List<StreamInfo> { Movie(201, "Gamma (2019)", 2) });
+        await RunSyncAsync(syncMovies: true, syncSeries: false, forceFullSync: true, movieFolders: Folders).ConfigureAwait(true);
+
+        MovieFiles("Alpha").Should().Equal("FolderA", "FolderB");
+    }
+
     [Fact]
     public async Task IncrementalSync_KeepsTheFilesToo()
     {
@@ -294,6 +321,13 @@ public class UnreadCategoryKeepTests : IDisposable
             .Should().BeEquivalentTo([1, 4], "2 was always empty, 3 answered, 4 threw");
     }
 
+    private string[] MovieFiles(string title)
+        => Directory.GetFiles(Path.Combine(_libraryPath, "Movies"), "*.strm", SearchOption.AllDirectories)
+            .Where(f => Path.GetFileName(f).StartsWith(title, StringComparison.Ordinal))
+            .Select(f => Path.GetRelativePath(Path.Combine(_libraryPath, "Movies"), f).Split(Path.DirectorySeparatorChar)[0])
+            .OrderBy(f => f, StringComparer.Ordinal)
+            .ToArray();
+
     private string? MovieFile(string title)
         => Directory.GetFiles(Path.Combine(_libraryPath, "Movies"), "*.strm", SearchOption.AllDirectories)
             .FirstOrDefault(f => Path.GetFileName(f).StartsWith(title, StringComparison.Ordinal));
@@ -386,7 +420,7 @@ public class UnreadCategoryKeepTests : IDisposable
     private static Series Show(int id, string name, int categoryId)
         => new() { SeriesId = id, Name = name, CategoryId = categoryId };
 
-    private async Task<SyncResult> RunSyncAsync(bool syncMovies, bool syncSeries, bool forceFullSync, bool incremental = true, int[]? selectedVod = null)
+    private async Task<SyncResult> RunSyncAsync(bool syncMovies, bool syncSeries, bool forceFullSync, bool incremental = true, int[]? selectedVod = null, string? movieFolders = null)
     {
         if (forceFullSync)
         {
@@ -420,6 +454,8 @@ public class UnreadCategoryKeepTests : IDisposable
                 // list each run changes the config fingerprint and makes every run a full sync.
                 EnableIncrementalSync = incremental,
                 SelectedVodCategoryIds = selectedVod ?? Array.Empty<int>(),
+                MovieFolderMode = movieFolders is null ? "Single" : "Multiple",
+                MovieFolderMappings = movieFolders ?? string.Empty,
                 FullSyncIntervalDays = 7,
                 ExcludedVodStreamIds = new[] { 1000 + _run },
                 ExcludedSeriesIds = new[] { 1000 + _run },
