@@ -328,6 +328,16 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool ShowCatchupInJellyfin { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether on-demand trickplay scrubbing previews are generated
+    /// for catch-up programmes inside Jellyfin.
+    /// <para>
+    /// Tiles are generated lazily via FFmpeg keyframe extraction only when a client scrubs a
+    /// catch-up programme and cached on disk under the Jellyfin cache directory.
+    /// </para>
+    /// </summary>
+    public bool EnableCatchupTrickplay { get; set; }
+
+    /// <summary>
     /// Gets or sets a correction, in minutes, applied to the provider's catch-up clock.
     /// <para>
     /// The last resort when catch-up plays a programme from the wrong hour. The offset is normally

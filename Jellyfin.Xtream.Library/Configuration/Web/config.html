@@ -1195,6 +1195,16 @@
                                     the entry and keeps your watched history; removing the plugin deletes it.
                                 </div>
                             </div>
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input is="emby-checkbox" type="checkbox" id="chkEnableCatchupTrickplay" name="EnableCatchupTrickplay" />
+                                    <span>On-demand trickplay previews for catch-up</span>
+                                </label>
+                                <div class="fieldDescription checkboxFieldDescription">
+                                    Generates scrubbing preview tiles on demand when seeking inside catch-up programmes
+                                    and caches them under Jellyfin's cache directory.
+                                </div>
+                            </div>
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="txtCatchupBlockMinutes">Block Length Where There Is No Guide (minutes)</label>
                                 <input is="emby-input" type="number" id="txtCatchupBlockMinutes" name="CatchupBlockMinutes"
