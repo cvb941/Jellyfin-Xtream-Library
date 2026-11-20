@@ -104,13 +104,15 @@ public static class CatchupPlanner
     /// <param name="toUtc">Window end, exclusive.</param>
     /// <param name="nowUtc">The current instant.</param>
     /// <param name="archiveHorizonUtc">Oldest instant the provider still serves.</param>
+    /// <param name="includeInProgress">When true, also includes a programme that has started and is currently airing.</param>
     /// <returns>Matching programmes, oldest first.</returns>
     public static IReadOnlyList<EpgProgram> ProgrammesInWindow(
         IEnumerable<EpgProgram>? all,
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,
         DateTimeOffset nowUtc,
-        DateTimeOffset archiveHorizonUtc)
+        DateTimeOffset archiveHorizonUtc,
+        bool includeInProgress = false)
     {
         if (all == null)
         {
@@ -125,7 +127,7 @@ public static class CatchupPlanner
         return all
             .Where(p => p.StopTimestamp > p.StartTimestamp)
             .Where(p => p.StartTimestamp < to && p.StopTimestamp > from)
-            .Where(p => p.StopTimestamp <= now)
+            .Where(p => includeInProgress ? p.StartTimestamp <= now : p.StopTimestamp <= now)
             .Where(p => p.StartTimestamp >= horizon)
             .OrderBy(p => p.StartTimestamp)
             .ToList();

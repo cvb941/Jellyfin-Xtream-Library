@@ -383,6 +383,7 @@ var XtreamLibraryConfig = (function () {
             document.getElementById('txtCatchupDays').value = config.CatchupDays || 7;
             document.getElementById('chkEmitCredentialedCatchupSource').checked = config.EmitCredentialedCatchupSource || false;
             document.getElementById('chkShowCatchupInJellyfin').checked = config.ShowCatchupInJellyfin || false;
+            document.getElementById('chkShowInProgressCatchup').checked = config.ShowInProgressCatchup || false;
             document.getElementById('txtCatchupBlockMinutes').value =
                 config.CatchupBlockMinutes != null ? config.CatchupBlockMinutes : 30;
             // Zero is the intended value here, so || would quietly rewrite it to itself and, more
@@ -485,6 +486,7 @@ var XtreamLibraryConfig = (function () {
             config.CatchupDays = parseInt(document.getElementById('txtCatchupDays').value) || 7;
             config.EmitCredentialedCatchupSource = document.getElementById('chkEmitCredentialedCatchupSource').checked;
             config.ShowCatchupInJellyfin = document.getElementById('chkShowCatchupInJellyfin').checked;
+            config.ShowInProgressCatchup = document.getElementById('chkShowInProgressCatchup').checked;
             var catchupBlock = parseInt(document.getElementById('txtCatchupBlockMinutes').value);
             config.CatchupBlockMinutes = isNaN(catchupBlock) ? 30 : catchupBlock;
             var catchupShift = parseInt(document.getElementById('txtCatchupTimeShiftMinutes').value);

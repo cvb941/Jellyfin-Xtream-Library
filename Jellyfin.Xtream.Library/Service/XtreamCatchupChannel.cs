@@ -17,6 +17,8 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Xtream.Library.Client.Models;
@@ -55,6 +57,7 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
     private readonly IMediaEncoder _mediaEncoder;
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<XtreamCatchupChannel> _logger;
+    private readonly IHttpClientFactory? _httpClientFactory;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="XtreamCatchupChannel"/> class.
@@ -64,18 +67,21 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
     /// <param name="mediaEncoder">Probes the resolved programme before playback.</param>
     /// <param name="libraryManager">Resolves the programme's Jellyfin item ID.</param>
     /// <param name="logger">Logger.</param>
+    /// <param name="httpClientFactory">Optional HTTP client factory used to probe HLS chase-play manifests for in-progress programmes.</param>
     public XtreamCatchupChannel(
         LiveTvService liveTvService,
         CatchupEpgCache epgCache,
         IMediaEncoder mediaEncoder,
         ILibraryManager libraryManager,
-        ILogger<XtreamCatchupChannel> logger)
+        ILogger<XtreamCatchupChannel> logger,
+        IHttpClientFactory? httpClientFactory = null)
     {
         _liveTvService = liveTvService;
         _epgCache = epgCache;
         _mediaEncoder = mediaEncoder;
         _libraryManager = libraryManager;
         _logger = logger;
+        _httpClientFactory = httpClientFactory;
     }
 
     /// <summary>
@@ -234,7 +240,20 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
             throw new InvalidOperationException("The catch-up programme no longer exists in the Jellyfin library.");
         }
 
-        var source = BuildMediaSource(items[0].Id.ToString("N", CultureInfo.InvariantCulture), url, reference);
+        var itemId = items[0].Id.ToString("N", CultureInfo.InvariantCulture);
+        var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (reference.StartUnix <= nowUnix && nowUnix < reference.StopUnix && _httpClientFactory is not null)
+        {
+            var hlsUrl = CatchupUrlBuilder.BuildPlaybackUrl(
+                baseUrl, username, password, reference.StreamId, startUtc, minutes, clock.Offset, "m3u8");
+            var hlsSource = await TryBuildHlsChasePlaySourceAsync(itemId, hlsUrl, cancellationToken).ConfigureAwait(false);
+            if (hlsSource is not null)
+            {
+                return new[] { hlsSource };
+            }
+        }
+
+        var source = BuildMediaSource(itemId, url, reference);
         var info = await _mediaEncoder.GetMediaInfo(
             new MediaInfoRequest { MediaSource = source, MediaType = DlnaProfileType.Video }, cancellationToken).ConfigureAwait(false);
         source.MediaStreams = info.MediaStreams;
@@ -286,6 +305,174 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
         SupportsTranscoding = true,
         AnalyzeDurationMs = 3000,
     };
+
+    private async Task<MediaSourceInfo?> TryBuildHlsChasePlaySourceAsync(
+        string id,
+        string hlsUrl,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var client = _httpClientFactory!.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(5);
+            using var response = await client.GetAsync(hlsUrl, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(body) || !body.TrimStart().StartsWith("#EXTM3U", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            return ParseHlsMasterMediaSource(id, hlsUrl, body);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "HLS chase-play probe failed for {Url}; falling back to default timeshift", hlsUrl);
+            return null;
+        }
+    }
+
+    internal static MediaSourceInfo ParseHlsMasterMediaSource(string id, string hlsUrl, string masterPlaylist)
+    {
+        var streams = new List<MediaStream>();
+        int streamIndex = 0;
+
+        int? width = null;
+        int? height = null;
+        int? videoBitrate = null;
+        string videoCodec = "h264";
+        string audioCodec = "aac";
+
+        foreach (var rawLine in masterPlaylist.Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (line.StartsWith("#EXT-X-STREAM-INF:", StringComparison.Ordinal))
+            {
+                var bwMatch = Regex.Match(line, @"BANDWIDTH=(\d+)");
+                if (bwMatch.Success && int.TryParse(bwMatch.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var bw))
+                {
+                    videoBitrate = bw;
+                }
+
+                var resMatch = Regex.Match(line, @"RESOLUTION=(\d+)x(\d+)");
+                if (resMatch.Success
+                    && int.TryParse(resMatch.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var w)
+                    && int.TryParse(resMatch.Groups[2].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var h))
+                {
+                    width = w;
+                    height = h;
+                }
+
+                var codecsMatch = Regex.Match(line, @"CODECS=""([^""]+)""");
+                if (codecsMatch.Success)
+                {
+                    var codecs = codecsMatch.Groups[1].Value;
+                    if (codecs.Contains("hvc1", StringComparison.OrdinalIgnoreCase)
+                        || codecs.Contains("hev1", StringComparison.OrdinalIgnoreCase))
+                    {
+                        videoCodec = "hevc";
+                    }
+                    else if (codecs.Contains("avc1", StringComparison.OrdinalIgnoreCase))
+                    {
+                        videoCodec = "h264";
+                    }
+
+                    if (codecs.Contains("mp4a", StringComparison.OrdinalIgnoreCase))
+                    {
+                        audioCodec = "aac";
+                    }
+                }
+            }
+        }
+
+        streams.Add(new MediaStream
+        {
+            Type = MediaStreamType.Video,
+            Index = streamIndex++,
+            Codec = videoCodec,
+            Width = width ?? 1280,
+            Height = height ?? 720,
+            BitRate = videoBitrate ?? 3400000,
+            PixelFormat = "yuv420p",
+            BitDepth = 8,
+            IsDefault = true,
+            IsInterlaced = false,
+            AverageFrameRate = 25,
+            RealFrameRate = 25,
+        });
+
+        int? defaultAudioIndex = null;
+        foreach (var rawLine in masterPlaylist.Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (!line.StartsWith("#EXT-X-MEDIA:", StringComparison.Ordinal)
+                || !line.Contains("TYPE=AUDIO", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var langMatch = Regex.Match(line, @"LANGUAGE=""([^""]+)""");
+            var nameMatch = Regex.Match(line, @"NAME=""([^""]+)""");
+            var isDefault = line.Contains("DEFAULT=YES", StringComparison.OrdinalIgnoreCase);
+            var idx = streamIndex++;
+            if (isDefault && defaultAudioIndex is null)
+            {
+                defaultAudioIndex = idx;
+            }
+
+            streams.Add(new MediaStream
+            {
+                Type = MediaStreamType.Audio,
+                Index = idx,
+                Codec = audioCodec,
+                Language = langMatch.Success ? langMatch.Groups[1].Value : null,
+                Title = nameMatch.Success ? nameMatch.Groups[1].Value : null,
+                Channels = 2,
+                ChannelLayout = "stereo",
+                SampleRate = 48000,
+                BitRate = 128000,
+                IsDefault = isDefault,
+            });
+        }
+
+        if (streams.Count == 1)
+        {
+            defaultAudioIndex = streamIndex;
+            streams.Add(new MediaStream
+            {
+                Type = MediaStreamType.Audio,
+                Index = streamIndex++,
+                Codec = audioCodec,
+                Channels = 2,
+                ChannelLayout = "stereo",
+                SampleRate = 48000,
+                BitRate = 128000,
+                IsDefault = true,
+            });
+        }
+
+        return new MediaSourceInfo
+        {
+            Id = id,
+            Path = hlsUrl,
+            Protocol = MediaProtocol.Http,
+            Container = "hls",
+            IsRemote = true,
+            IsInfiniteStream = true,
+            RunTimeTicks = null,
+            SupportsProbing = false,
+            SupportsDirectPlay = true,
+            SupportsDirectStream = true,
+            SupportsTranscoding = true,
+            Bitrate = (videoBitrate ?? 3400000) + 128000,
+            DefaultAudioStreamIndex = defaultAudioIndex ?? 1,
+            MediaStreams = streams,
+        };
+    }
 
     internal static ChannelItemInfo BuildItem(
         CatchupItemRef reference,
@@ -401,7 +588,7 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
 
         var (from, to) = CatchupPlanner.DayWindowUtc(reference.DaysAgo, zone, now);
         var horizon = CatchupPlanner.ArchiveHorizonUtc(days, zone, now);
-        var selected = CatchupPlanner.ProgrammesInWindow(programmes, from, to, now, horizon);
+        var selected = CatchupPlanner.ProgrammesInWindow(programmes, from, to, now, horizon, config.ShowInProgressCatchup);
 
         var entries = selected.Select(programme =>
         {

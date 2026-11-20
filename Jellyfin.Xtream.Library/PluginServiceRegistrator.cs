@@ -21,6 +21,7 @@ using MediaBrowser.Controller.Channels;
 using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Tasks;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -48,6 +49,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // registration instead would have Jellyfin delete the channel and everything under it on
         // the next scan, taking watched state with it (GitHub #108).
         serviceCollection.AddSingleton<IChannel, XtreamCatchupChannel>();
+        serviceCollection.Configure<MvcOptions>(options => options.Filters.Add<ChasePlayPlaybackInfoFilter>());
         serviceCollection.AddSingleton<IScheduledTask, SyncLibraryTask>();
         serviceCollection.AddHostedService<Service.BetaChannelManager>();
         serviceCollection.AddHostedService<Service.NativeTunerRegistration>();

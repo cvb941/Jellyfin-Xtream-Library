@@ -328,6 +328,13 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool ShowCatchupInJellyfin { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether the currently airing programme is also listed under
+    /// today's catch-up folder so viewers can start it from the beginning (start-over) on providers
+    /// that support timeshift for in-progress broadcasts.
+    /// </summary>
+    public bool ShowInProgressCatchup { get; set; }
+
+    /// <summary>
     /// Gets or sets a correction, in minutes, applied to the provider's catch-up clock.
     /// <para>
     /// The last resort when catch-up plays a programme from the wrong hour. The offset is normally

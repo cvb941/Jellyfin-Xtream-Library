@@ -87,4 +87,38 @@ public class CatchupMediaSourceTests
         item.DateModified.Should().BeAfter(DateTime.MinValue);
         item.RunTimeTicks.Should().Be(TimeSpan.FromHours(1).Ticks);
     }
+
+    [Fact]
+    public void ParseHlsMasterMediaSource_ParsesHevcAndAudioTracksForChasePlay()
+    {
+        const string master = """
+            #EXTM3U
+            #EXT-X-VERSION:7
+            #EXT-X-INDEPENDENT-SEGMENTS
+            #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Slovak",LANGUAGE="slk",DEFAULT=YES,AUTOSELECT=YES,URI="http://127.0.0.1:5050/hls/abc/audio/0.m3u8"
+            #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Original",LANGUAGE="mul",DEFAULT=NO,AUTOSELECT=YES,URI="http://127.0.0.1:5050/hls/abc/audio/1.m3u8"
+            #EXT-X-STREAM-INF:BANDWIDTH=3400000,RESOLUTION=1280x720,CODECS="hvc1.1.6.L120.b0,mp4a.40.2",AUDIO="audio"
+            http://127.0.0.1:5050/hls/abc/video/0.m3u8
+            """;
+
+        var source = XtreamCatchupChannel.ParseHlsMasterMediaSource("item123", "http://127.0.0.1:5050/timeshift/u/p/60/2026-11-19:22-00/4044.m3u8", master);
+
+        Assert.Equal("hls", source.Container);
+        Assert.True(source.SupportsDirectPlay);
+        Assert.True(source.SupportsDirectStream);
+        Assert.True(source.SupportsTranscoding);
+        Assert.True(source.IsInfiniteStream);
+        Assert.Null(source.RunTimeTicks);
+        Assert.False(source.SupportsProbing);
+        Assert.Equal(1, source.DefaultAudioStreamIndex);
+        Assert.Equal(3, source.MediaStreams.Count);
+        Assert.Equal("hevc", source.MediaStreams[0].Codec);
+        Assert.Equal(1280, source.MediaStreams[0].Width);
+        Assert.Equal(720, source.MediaStreams[0].Height);
+        Assert.Equal("aac", source.MediaStreams[1].Codec);
+        Assert.Equal("slk", source.MediaStreams[1].Language);
+        Assert.True(source.MediaStreams[1].IsDefault);
+        Assert.Equal("mul", source.MediaStreams[2].Language);
+        Assert.False(source.MediaStreams[2].IsDefault);
+    }
 }

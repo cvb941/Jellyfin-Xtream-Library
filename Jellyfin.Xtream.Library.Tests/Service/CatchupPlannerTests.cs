@@ -399,4 +399,39 @@ public class CatchupPlannerTests
     {
         CatchupPlanner.DurationMinutes(start, stop).Should().Be(expected);
     }
+
+    [Fact]
+    public void ProgrammesInWindow_IncludesCurrentlyAiringProgramme_WhenIncludeInProgressIsTrue()
+    {
+        var now = new DateTimeOffset(2026, 11, 19, 10, 30, 0, TimeSpan.Zero);
+        var from = new DateTimeOffset(2026, 11, 19, 0, 0, 0, TimeSpan.Zero);
+        var to = from.AddDays(1);
+        var horizon = from.AddDays(-7);
+
+        var finished = new EpgProgram
+        {
+            Title = "Finished",
+            StartTimestamp = now.AddHours(-2).ToUnixTimeSeconds(),
+            StopTimestamp = now.AddHours(-1).ToUnixTimeSeconds(),
+        };
+        var airing = new EpgProgram
+        {
+            Title = "Airing Now",
+            StartTimestamp = now.AddMinutes(-20).ToUnixTimeSeconds(),
+            StopTimestamp = now.AddMinutes(40).ToUnixTimeSeconds(),
+        };
+        var future = new EpgProgram
+        {
+            Title = "Future",
+            StartTimestamp = now.AddHours(1).ToUnixTimeSeconds(),
+            StopTimestamp = now.AddHours(2).ToUnixTimeSeconds(),
+        };
+
+        var withoutLive = CatchupPlanner.ProgrammesInWindow(new[] { finished, airing, future }, from, to, now, horizon, includeInProgress: false);
+        var withLive = CatchupPlanner.ProgrammesInWindow(new[] { finished, airing, future }, from, to, now, horizon, includeInProgress: true);
+
+        Assert.Single(withoutLive);
+        Assert.Equal(2, withLive.Count);
+        Assert.Equal("Airing Now", withLive[1].Title);
+    }
 }
