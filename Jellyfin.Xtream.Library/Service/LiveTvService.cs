@@ -46,6 +46,7 @@ public class LiveTvService : IDisposable
     private readonly IServerApplicationPaths _appPaths;
     private readonly IServerApplicationHost _appHost;
     private readonly ILogger<LiveTvService> _logger;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, (DateTime ExpiresUtc, Dictionary<string, List<(DateTimeOffset Start, DateTimeOffset Stop, string Icon)>> Icons)> _catchupIconCache = new();
     private readonly SemaphoreSlim _m3uLock = new(1, 1);
     private readonly SemaphoreSlim _epgLock = new(1, 1);
     private readonly SemaphoreSlim _snapshotLock = new(1, 1);
@@ -1638,6 +1639,105 @@ public class LiveTvService : IDisposable
         var dto = new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Unspecified), offset);
         unixSeconds = dto.ToUnixTimeSeconds();
         return true;
+    }
+
+    /// <summary>
+    /// Finds a programme icon URL from the provider's upstream XMLTV guide.
+    /// </summary>
+    /// <param name="providerIndex">The provider index.</param>
+    /// <param name="epgChannelId">The XMLTV channel ID.</param>
+    /// <param name="startUtc">The programme start time in UTC.</param>
+    /// <param name="stopUtc">The programme stop time in UTC.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The icon URL, or <c>null</c> if unavailable.</returns>
+    public async Task<string?> GetCatchupProgrammeIconAsync(
+        int providerIndex,
+        string? epgChannelId,
+        DateTimeOffset startUtc,
+        DateTimeOffset stopUtc,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(epgChannelId))
+        {
+            return null;
+        }
+
+        var cacheMinutes = Math.Max(5, Plugin.Instance.Configuration.EpgCacheMinutes);
+        if (!_catchupIconCache.TryGetValue(providerIndex, out var entry) || entry.ExpiresUtc <= DateTime.UtcNow)
+        {
+            var parsed = new Dictionary<string, List<(DateTimeOffset Start, DateTimeOffset Stop, string Icon)>>(StringComparer.Ordinal);
+            try
+            {
+                var creds = Plugin.Instance.GetCreds(providerIndex);
+                var xml = await _client.GetXmltvAsync(creds, cancellationToken).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(xml))
+                {
+                    using var sr = new StringReader(xml);
+                    using var reader = System.Xml.XmlReader.Create(sr, new System.Xml.XmlReaderSettings { Async = true, DtdProcessing = System.Xml.DtdProcessing.Ignore, IgnoreComments = true, IgnoreWhitespace = true });
+                    while (await reader.ReadAsync().ConfigureAwait(false))
+                    {
+                        if (reader.NodeType == System.Xml.XmlNodeType.Element && reader.Name.Equals("programme", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var ch = reader.GetAttribute("channel");
+                            var sAttr = reader.GetAttribute("start");
+                            var eAttr = reader.GetAttribute("stop");
+                            using var sub = reader.ReadSubtree();
+                            string? iconSrc = null;
+                            while (await sub.ReadAsync().ConfigureAwait(false))
+                            {
+                                if (sub.NodeType == System.Xml.XmlNodeType.Element && sub.Name.Equals("icon", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    iconSrc ??= sub.GetAttribute("src");
+                                }
+                            }
+
+                            if (!string.IsNullOrWhiteSpace(ch) && !string.IsNullOrWhiteSpace(iconSrc)
+                                && TryParseXmltvDateTime(sAttr, out var pStart) && TryParseXmltvDateTime(eAttr, out var pStop))
+                            {
+                                if (!parsed.TryGetValue(ch, out var list))
+                                {
+                                    list = [];
+                                    parsed[ch] = list;
+                                }
+
+                                list.Add((pStart, pStop, iconSrc));
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "Failed to load XMLTV programme icons for provider {ProviderIndex}", providerIndex);
+            }
+
+            _logger.LogInformation("Loaded XMLTV catch-up icons for {ChannelCount} channels ({ProgrammeCount} programmes) from provider {ProviderIndex}", parsed.Count, parsed.Values.Sum(v => v.Count), providerIndex);
+            entry = (DateTime.UtcNow.AddMinutes(cacheMinutes), parsed);
+            _catchupIconCache[providerIndex] = entry;
+        }
+
+        if (!entry.Icons.TryGetValue(epgChannelId, out var programs))
+        {
+            return null;
+        }
+
+        return programs
+            .Where(p => p.Start < stopUtc && p.Stop > startUtc)
+            .OrderBy(p => Math.Abs((p.Start - startUtc).TotalSeconds))
+            .Select(p => p.Icon)
+            .FirstOrDefault();
+    }
+
+    private static bool TryParseXmltvDateTime(string? value, out DateTimeOffset result)
+    {
+        result = default;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var formats = new[] { "yyyyMMddHHmmss zzz", "yyyyMMddHHmmss zz", "yyyyMMddHHmmss", "yyyyMMddHHmm zzz", "yyyyMMddHHmm" };
+        return DateTimeOffset.TryParseExact(value.Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out result);
     }
 
     /// <summary>

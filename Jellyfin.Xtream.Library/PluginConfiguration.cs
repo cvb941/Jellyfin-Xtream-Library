@@ -328,6 +328,16 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool ShowCatchupInJellyfin { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether the air date is included in catch-up programme titles.
+    /// </summary>
+    public bool ShowCatchupDateInTitle { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether catch-up day folders use sortable yyyy-MM-dd names.
+    /// </summary>
+    public bool UseSortableCatchupDayNames { get; set; }
+
+    /// <summary>
     /// Gets or sets a correction, in minutes, applied to the provider's catch-up clock.
     /// <para>
     /// The last resort when catch-up plays a programme from the wrong hour. The offset is normally

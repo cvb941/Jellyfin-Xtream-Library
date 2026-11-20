@@ -1177,6 +1177,24 @@
                                     <input is="emby-checkbox" type="checkbox" id="chkShowCatchupInJellyfin" name="ShowCatchupInJellyfin" />
                                     <span>Watch catch-up inside Jellyfin</span>
                                 </label>
+                            </div>
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input is="emby-checkbox" type="checkbox" id="chkShowCatchupDateInTitle" name="ShowCatchupDateInTitle" />
+                                    <span>Include air date in catch-up programme titles</span>
+                                </label>
+                                <div class="fieldDescription checkboxFieldDescription">
+                                    Prepends the air date (e.g. <code>17.11. 20:30 Title</code>) to catch-up items so playback history and Continue Watching show which day an episode aired.
+                                </div>
+                            </div>
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input is="emby-checkbox" type="checkbox" id="chkUseSortableCatchupDayNames" name="UseSortableCatchupDayNames" />
+                                    <span>Use sortable dates (yyyy-MM-dd) for catch-up day folders</span>
+                                </label>
+                                <div class="fieldDescription checkboxFieldDescription">
+                                    Formats day folders as <code>yyyy-MM-dd (ddd)</code> so Jellyfin sorts them chronologically by default instead of alphabetically by weekday name.
+                                </div>
                                 <div class="fieldDescription checkboxFieldDescription">
                                     Adds an <strong>Xtream Catch-up</strong> entry under Channels, separate from Live TV,
                                     where you can browse a channel by day and play a programme that has already aired.

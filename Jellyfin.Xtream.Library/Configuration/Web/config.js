@@ -383,6 +383,8 @@ var XtreamLibraryConfig = (function () {
             document.getElementById('txtCatchupDays').value = config.CatchupDays || 7;
             document.getElementById('chkEmitCredentialedCatchupSource').checked = config.EmitCredentialedCatchupSource || false;
             document.getElementById('chkShowCatchupInJellyfin').checked = config.ShowCatchupInJellyfin || false;
+            document.getElementById('chkShowCatchupDateInTitle').checked = config.ShowCatchupDateInTitle || false;
+            document.getElementById('chkUseSortableCatchupDayNames').checked = config.UseSortableCatchupDayNames || false;
             document.getElementById('txtCatchupBlockMinutes').value =
                 config.CatchupBlockMinutes != null ? config.CatchupBlockMinutes : 30;
             // Zero is the intended value here, so || would quietly rewrite it to itself and, more
@@ -485,6 +487,8 @@ var XtreamLibraryConfig = (function () {
             config.CatchupDays = parseInt(document.getElementById('txtCatchupDays').value) || 7;
             config.EmitCredentialedCatchupSource = document.getElementById('chkEmitCredentialedCatchupSource').checked;
             config.ShowCatchupInJellyfin = document.getElementById('chkShowCatchupInJellyfin').checked;
+            config.ShowCatchupDateInTitle = document.getElementById('chkShowCatchupDateInTitle').checked;
+            config.UseSortableCatchupDayNames = document.getElementById('chkUseSortableCatchupDayNames').checked;
             var catchupBlock = parseInt(document.getElementById('txtCatchupBlockMinutes').value);
             config.CatchupBlockMinutes = isNaN(catchupBlock) ? 30 : catchupBlock;
             var catchupShift = parseInt(document.getElementById('txtCatchupTimeShiftMinutes').value);

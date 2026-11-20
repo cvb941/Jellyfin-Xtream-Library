@@ -292,7 +292,8 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
         DateTimeOffset startUtc,
         DateTimeOffset stopUtc,
         string name,
-        string? overview) => new()
+        string? overview,
+        string? imageUrl = null) => new()
     {
         Id = CatchupItemId.ForProgramme(
             reference.ProviderIndex,
@@ -301,6 +302,7 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
             stopUtc.ToUnixTimeSeconds()),
         Name = name,
         Overview = overview,
+        ImageUrl = imageUrl,
         Type = ChannelItemType.Media,
         ContentType = ChannelMediaContentType.TvExtra,
         MediaType = ChannelMediaType.Video,
@@ -363,12 +365,18 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
         for (int daysAgo = 0; daysAgo < days; daysAgo++)
         {
             var (from, _) = CatchupPlanner.DayWindowUtc(daysAgo, zone, now);
-            var label = TimeZoneInfo.ConvertTime(from, zone).ToString("ddd d MMM", CultureInfo.CurrentCulture);
+            var localFrom = TimeZoneInfo.ConvertTime(from, zone);
+            var label = localFrom.ToString("ddd d MMM", CultureInfo.CurrentCulture);
+            var name = config.UseSortableCatchupDayNames
+                ? (daysAgo == 0 ? $"{localFrom:yyyy-MM-dd} (Today, {localFrom:ddd})" : $"{localFrom:yyyy-MM-dd} ({localFrom:ddd})")
+                : (daysAgo == 0 ? $"Today, {label}" : label);
 
             items.Add(new ChannelItemInfo
             {
                 Id = CatchupItemId.ForDay(reference.ProviderIndex, reference.StreamId, daysAgo),
-                Name = daysAgo == 0 ? $"Today, {label}" : label,
+                Name = name,
+                DateCreated = from.UtcDateTime,
+                PremiereDate = from.UtcDateTime,
                 Type = ChannelItemType.Folder,
             });
         }
@@ -403,20 +411,29 @@ public class XtreamCatchupChannel : IChannel, IDisableMediaSourceDisplay, IRequi
         var horizon = CatchupPlanner.ArchiveHorizonUtc(days, zone, now);
         var selected = CatchupPlanner.ProgrammesInWindow(programmes, from, to, now, horizon);
 
-        var entries = selected.Select(programme =>
+        var entries = new List<(DateTimeOffset Start, ChannelItemInfo Item)>(selected.Count);
+        foreach (var programme in selected)
         {
             var startUtc = DateTimeOffset.FromUnixTimeSeconds(programme.StartTimestamp);
             var stopUtc = DateTimeOffset.FromUnixTimeSeconds(programme.StopTimestamp);
             var localStart = TimeZoneInfo.ConvertTime(startUtc, zone);
             var title = LiveTvService.DecodeBase64(programme.Title);
+            var datePrefix = config.ShowCatchupDateInTitle ? localStart.ToString("dd.MM. HH:mm", CultureInfo.InvariantCulture) : localStart.ToString("HH:mm", CultureInfo.InvariantCulture);
+            var iconUrl = await _liveTvService.GetCatchupProgrammeIconAsync(
+                reference.ProviderIndex,
+                !string.IsNullOrEmpty(channel.EpgChannelId) ? channel.EpgChannelId : channel.StreamId.ToString(CultureInfo.InvariantCulture),
+                startUtc,
+                stopUtc,
+                cancellationToken).ConfigureAwait(false);
 
-            return (Start: startUtc, Item: BuildItem(
+            entries.Add((Start: startUtc, Item: BuildItem(
                 reference,
                 startUtc,
                 stopUtc,
-                $"{localStart:HH:mm} {title}",
-                LiveTvService.DecodeBase64(programme.Description)));
-        }).ToList();
+                $"{datePrefix} {title}",
+                LiveTvService.DecodeBase64(programme.Description),
+                iconUrl)));
+        }
 
         int blockCount = 0;
         if (config.CatchupBlockMinutes > 0)
